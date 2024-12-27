@@ -50,6 +50,48 @@
 </div>
 
 <script>
+    // Add this new function at the beginning of your script section
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        try {
+            // Handle compact format (20241004T151500Z)
+            if (dateString.length === 16 && dateString.includes('T')) {
+                const year = dateString.slice(0, 4);
+                const month = dateString.slice(4, 6);
+                const day = dateString.slice(6, 8);
+                
+                // Create date string in ISO format that JavaScript can parse
+                const isoDate = `${year}-${month}-${day}T${dateString.slice(9, 11)}:${dateString.slice(11, 13)}:${dateString.slice(13, 15)}Z`;
+                const date = new Date(isoDate);
+                
+                if (isNaN(date.getTime())) {
+                    throw new Error('Invalid date');
+                }
+                
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+            
+            // Handle standard ISO format
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) {
+                throw new Error('Invalid date');
+            }
+            
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (e) {
+            console.error('Error formatting date:', e, 'for string:', dateString);
+            return dateString; // Return original string if parsing fails
+        }
+    }
+
     // Levenshtein distance calculation for similarity
     function levenshteinDistance(str1, str2) {
         const track = Array(str2.length + 1).fill(null).map(() =>
@@ -169,19 +211,19 @@
         groupedResults.forEach(group => {
             const listItem = document.createElement('li');
             const mainArticle = group.articles[0];
-            console.log('Processing article:', mainArticle); // Debug: Log each article
+            console.log('Processing article:', mainArticle);
 
-            // Single article display
+            // Update the single article display section
             if (group.articles.length === 1) {
                 listItem.className = 'single-article';
                 listItem.innerHTML = `
                     <strong>Title:</strong> ${mainArticle.title || 'No title'}<br>
                     <strong>URL:</strong> <a href="${mainArticle.url || '#'}" target="_blank">${mainArticle.url || 'No URL'}</a><br>
-                    <strong>Date:</strong> ${mainArticle.date || 'N/A'}<br>
+                    <strong>Date:</strong> ${formatDate(mainArticle.date)}<br>
                     <strong>Sentiment:</strong> ${mainArticle.sentiment || 'N/A'}
                 `;
             } 
-            // Grouped articles display
+            // Update the grouped articles display section
             else {
                 listItem.innerHTML = `
                     <div class="article-group">
@@ -192,7 +234,7 @@
                             ${group.articles.map(article => `
                                 <li>
                                     <a href="${article.url || '#'}" target="_blank">${article.url ? new URL(article.url).hostname : 'No URL'}</a>
-                                    ${article.date ? ` (${article.date})` : ''}
+                                    ${article.date ? ` (${formatDate(article.date)})` : ''}
                                 </li>
                             `).join('')}
                         </ul>
