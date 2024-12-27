@@ -8,15 +8,14 @@
         .container {
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 0 20px;
         }
         .article-header {
             margin-bottom: 30px;
-            padding-bottom: 20px;
         }
         .relevance-section {
-            margin: 20px 0;
-            padding: 20px;
+            margin: 0;
+            padding: 0 20px 20px 20px;
             background-color: #2f3337;
             border-radius: 8px;
             color: #ffffff;
@@ -25,10 +24,12 @@
             font-size: 1.2em;
             margin-bottom: 15px;
             color: #ffffff;
+            padding-top: 20px;
         }
         .relevance-chunk {
             padding: 10px;
             margin: 10px 0;
+            padding-bottom: 20px;
             border-left: 4px solid #454545;
             background-color: #383c41;
             font-size: 1em;
@@ -113,17 +114,30 @@
         .back-link:hover {
             text-decoration: underline;
         }
+        .section-title {
+            font-size: 1.2em;
+            color: #ffffff;
+            margin: -10px 0 25px 0;
+            line-height: 1.6;
+            padding: 0;
+        }
+        #contentBreakdown {
+            padding-top: 0;
+            margin-top: 0;
+        }
     </style>
 </head>
 <body>
-<div class="container">
-    <a href="javascript:history.back()" class="back-link">← Back to Results</a>
-    <div class="article-header">
-        <h1 id="articleTitle">Loading...</h1>
-        <div id="articleMeta"></div>
+    <div style="padding-top: 20px;">
+    <div class="container">
+        <a href="javascript:history.back()" class="back-link">← Back to Results</a>
+        <div class="article-header">
+            <h1 id="articleTitle">Loading...</h1>
+            <div id="articleMeta"></div>
+        </div>
+        <div id="contentBreakdown"></div>
     </div>
-    <div id="contentBreakdown"></div>
-</div>
+    </div>
 
 <script>
     function getSentimentDisplay(score, category) {
@@ -198,10 +212,12 @@
             <p>Published: ${formatDate(article.date)}</p>
             <p>Overall Sentiment: ${getSentimentDisplay(article.sentiment_score, article.sentiment)}</p>
             <p><a href="${article.url}" target="_blank">View Original Article</a></p>
-            <div class="relevance-section">
-                <div class="relevance-title">Keyword Relevance (${article.keyword})</div>
+            <div style="height: 2px; background-color: #ffffff; margin: 30px 0;"></div>
+            <div class="relevance-section" style="margin: 0;">
+                <div class="relevance-title">Keyword Found: <i>${article.keyword}</i></div>
                 ${getRelevantChunks(article.content_chunks, article.keyword)}
             </div>
+            <div style="height: 2px; background-color: #ffffff; margin-top: 30px;"></div>
         `;
 
         // Function to get relevant chunks where keyword was found
@@ -331,7 +347,10 @@
                     </div>
                 </div>
             `).join('');
-            document.getElementById('contentBreakdown').innerHTML = breakdownHtml;
+            document.getElementById('contentBreakdown').innerHTML = `
+                <div class="section-title">Sentiment Sections</div>
+                ${breakdownHtml}
+            `;
         } else {
             document.getElementById('contentBreakdown').innerHTML = '<p>No detailed breakdown available for this article.</p>';
         }
