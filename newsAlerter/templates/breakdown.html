@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Article Breakdown</title>
+    <style>
+        {{styles}}
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .article-header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+        }
+        .relevance-section {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #2f3337;
+            border-radius: 8px;
+            color: #ffffff;
+        }
+        .relevance-title {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #ffffff;
+        }
+        .relevance-chunk {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #454545;
+            background-color: #383c41;
+            font-size: 1em;
+            line-height: 1.6;
+        }
+        .keyword-match {
+            background-color: rgba(255, 255, 255, 0.2);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 1em;
+            line-height: 1.6;
+        }
+        .chunk {
+            margin-bottom: 25px;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #2f3337;
+            color: #ffffff;
+            border-left: 4px solid #dee2e6;
+            line-height: 1.6;
+        }
+        .chunk.positive {
+            border-left-color: #28a745;
+            background-color: #2f3337;
+        }
+        .chunk.negative {
+            border-left-color: #dc3545;
+            background-color: #2f3337;
+        }
+        .chunk.neutral {
+            border-left-color: #6c757d;
+            background-color: #2f3337;
+        }
+        .chunk-text {
+            font-size: 1em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+        .chunk-meta {
+            font-size: 1em;
+            color: #a7a7a7;
+            padding-top: 10px;
+            border-top: 1px solid #454545;
+            line-height: 1.6;
+        }
+        .sentiment-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 1em;
+            margin-left: 10px;
+            line-height: 1.6;
+        }
+        .sentiment-positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .sentiment-negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .sentiment-neutral {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        .keyword-weight {
+            display: inline-block;
+            margin-left: 15px;
+            padding: 2px 8px;
+            background-color: #454545;
+            color: #ffffff;
+            border-radius: 12px;
+            font-size: 1em;
+            line-height: 1.6;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a href="javascript:history.back()" class="back-link">← Back to Results</a>
+    <div class="article-header">
+        <h1 id="articleTitle">Loading...</h1>
+        <div id="articleMeta"></div>
+    </div>
+    <div id="contentBreakdown"></div>
+</div>
+
+<script>
+    function getSentimentDisplay(score, category) {
+        return `<span class="sentiment-badge sentiment-${category}">${category} (${score})</span>`;
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        try {
+            if (dateString.length === 16 && dateString.includes('T')) {
+                const year = dateString.slice(0, 4);
+                const month = dateString.slice(4, 6);
+                const day = dateString.slice(6, 8);
+                const isoDate = `${year}-${month}-${day}T${dateString.slice(9, 11)}:${dateString.slice(11, 13)}:${dateString.slice(13, 15)}Z`;
+                const date = new Date(isoDate);
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (e) {
+            return dateString;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const articleId = urlParams.get('id');
+        
+        const results = JSON.parse(localStorage.getItem('results')) || [];
+        const article = results.find(a => a.url === articleId);
+        
+        if (!article) {
+            document.getElementById('articleTitle').textContent = 'Article not found';
+            return;
+        }
+
+        // Function to highlight keywords in text
+        function highlightKeywords(text, keyword) {
+            if (!keyword) return text;
+            
+            // Create variations of the phrase
+            const words = keyword.toLowerCase().split(' ');
+            const variations = [
+                words.join(' '),  // original order
+                words.reverse().join(' ')  // reversed order
+            ];
+            
+            let highlightedText = text;
+            
+            // Only highlight if we find the complete phrase
+            variations.forEach(phrase => {
+                // Escape special regex characters
+                const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escapedPhrase})`, 'gi');
+                highlightedText = highlightedText.replace(regex, '<span class="keyword-match">$1</span>');
+            });
+            
+            return highlightedText;
+        }
+
+        // Update header
+        document.getElementById('articleTitle').textContent = article.title;
+        document.getElementById('articleMeta').innerHTML = `
+            <p>Published: ${formatDate(article.date)}</p>
+            <p>Overall Sentiment: ${getSentimentDisplay(article.sentiment_score, article.sentiment)}</p>
+            <p><a href="${article.url}" target="_blank">View Original Article</a></p>
+            <div class="relevance-section">
+                <div class="relevance-title">Keyword Relevance (${article.keyword})</div>
+                ${getRelevantChunks(article.content_chunks, article.keyword)}
+            </div>
+        `;
+
+        // Function to get relevant chunks where keyword was found
+        function getRelevantChunks(chunks, keyword) {
+            if (!chunks || !keyword) return '<p>No relevant sections found</p>';
+            
+            // Filter chunks with keyword matches
+            const relevantChunks = chunks.filter(chunk => {
+                const words = keyword.toLowerCase().split(' ');
+                const variations = [
+                    words.join(' '),
+                    words.reverse().join(' ')
+                ];
+                const textLower = chunk.text.toLowerCase();
+                return variations.some(phrase => textLower.includes(phrase));
+            });
+            
+            if (relevantChunks.length === 0) {
+                return '<p>No exact keyword matches found in the article</p>';
+            }
+            
+            // Deduplicate chunks based on text content
+            const uniqueChunks = [];
+            const seenText = new Set();
+            
+            // Helper function to normalize text for comparison
+            const normalizeText = (text) => {
+                return text.toLowerCase()
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            };
+
+            // Helper function to find keyword position score
+            // Returns a score based on how centered the keyword is in the text
+            const getKeywordPositionScore = (text, keyword) => {
+                const normalizedText = normalizeText(text);
+                const keywordVariations = [
+                    keyword.toLowerCase(),
+                    keyword.toLowerCase().split(' ').reverse().join(' ')
+                ];
+                
+                // Find the keyword position that's most centered
+                let bestScore = -1;
+                keywordVariations.forEach(kw => {
+                    const keywordIndex = normalizedText.indexOf(kw);
+                    if (keywordIndex !== -1) {
+                        const textCenter = normalizedText.length / 2;
+                        const keywordCenter = keywordIndex + (kw.length / 2);
+                        const distanceFromCenter = Math.abs(textCenter - keywordCenter);
+                        const score = 1 - (distanceFromCenter / normalizedText.length);
+                        bestScore = Math.max(bestScore, score);
+                    }
+                });
+                return bestScore;
+            };
+
+            // Group overlapping chunks together
+            const chunkGroups = [];
+            relevantChunks.forEach(chunk => {
+                const normalizedText = normalizeText(chunk.text);
+                let foundGroup = false;
+                
+                // Check if this chunk overlaps with any existing group
+                for (const group of chunkGroups) {
+                    const groupText = normalizeText(group[0].text);
+                    // Find the common substring containing the keyword
+                    const words = keyword.toLowerCase().split(' ');
+                    const variations = [
+                        words.join(' '),
+                        words.reverse().join(' ')
+                    ];
+                    
+                    // Check if the chunks share the same sentence containing the keyword
+                    const hasOverlap = variations.some(kw => {
+                        const keywordIndex = normalizedText.indexOf(kw);
+                        if (keywordIndex === -1) return false;
+                        
+                        // Get the sentence containing the keyword
+                        const start = normalizedText.lastIndexOf('.', keywordIndex) + 1;
+                        const end = normalizedText.indexOf('.', keywordIndex + kw.length);
+                        const sentence = normalizedText.substring(
+                            start === -1 ? 0 : start,
+                            end === -1 ? normalizedText.length : end
+                        );
+                        
+                        return groupText.includes(sentence) || normalizedText.includes(sentence);
+                    });
+                    
+                    if (hasOverlap) {
+                        group.push(chunk);
+                        foundGroup = true;
+                        break;
+                    }
+                }
+                
+                if (!foundGroup) {
+                    chunkGroups.push([chunk]);
+                }
+            });
+            
+            // From each group, select the chunk with the most centered keyword
+            const bestChunks = chunkGroups.map(group => {
+                return group.reduce((best, current) => {
+                    const bestScore = getKeywordPositionScore(best.text, keyword);
+                    const currentScore = getKeywordPositionScore(current.text, keyword);
+                    return currentScore > bestScore ? current : best;
+                }, group[0]);
+            });
+            
+            return bestChunks.map(chunk => `
+                <div class="relevance-chunk">
+                    ${highlightKeywords(chunk.text, keyword)}
+                </div>
+            `).join('');
+        }
+
+        // Display content breakdown
+        if (article.content_chunks) {
+            const breakdownHtml = article.content_chunks.map((chunk, index) => `
+                <div class="chunk ${chunk.category}">
+                    <div class="chunk-text">${highlightKeywords(chunk.text, article.keyword)}</div>
+                    <div class="chunk-meta">
+                        Sentiment: ${getSentimentDisplay(chunk.sentiment_score, chunk.category)}
+                        ${chunk.keyword_weight > 1 ? 
+                            `<span class="keyword-weight">Keyword Relevance: ${chunk.keyword_weight}x</span>` 
+                            : ''}
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('contentBreakdown').innerHTML = breakdownHtml;
+        } else {
+            document.getElementById('contentBreakdown').innerHTML = '<p>No detailed breakdown available for this article.</p>';
+        }
+    });
+</script>
+</body>
+</html> 

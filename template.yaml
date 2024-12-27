@@ -42,6 +42,16 @@ Resources:
           Properties:
             Path: /search
             Method: post
+        Breakdown:
+          Type: Api
+          Properties:
+            Path: /breakdown.html
+            Method: get
+        Root:
+          Type: Api
+          Properties:
+            Path: /
+            Method: get
       Timeout: 30
       MemorySize: 256
 

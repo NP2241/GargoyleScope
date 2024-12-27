@@ -48,46 +48,158 @@ def get_sentiment_category(polarity):
     else:
         return "neutral"
 
-def analyze_sentiment(text):
-    """Quick sentiment analysis"""
+def analyze_text_chunk(text):
+    """Analyze sentiment of a single chunk of text"""
     try:
         if not text:
-            return 'neutral'
+            return 0
         blob = TextBlob(text)
-        polarity = blob.sentiment.polarity
-        if polarity > 0.1:
-            return 'positive'
-        elif polarity < -0.1:
-            return 'negative'
-        return 'neutral'
+        return blob.sentiment.polarity
+    except Exception as e:
+        logger.error(f"Error analyzing chunk: {str(e)}")
+        return 0
+
+def calculate_keyword_relevance(text, keyword):
+    """Calculate how relevant a chunk of text is to the keyword"""
+    text_lower = text.lower()
+    keyword_lower = keyword.lower()
+    
+    # Direct keyword presence (highest weight)
+    if keyword_lower in text_lower:
+        return 3.0
+    
+    # Handle multi-word keywords (like "rangoon ruby")
+    if ' ' in keyword_lower:
+        # Create variations of the phrase
+        words = keyword_lower.split()
+        variations = [
+            ' '.join(words),  # original order
+            ' '.join(reversed(words))  # reversed order
+        ]
+        
+        # Check if any variation exists in the text
+        if any(variation in text_lower for variation in variations):
+            return 3.0
+        
+        # If no exact phrase match (in either order), return base weight
+        return 1.0
+    
+    return 1.0
+
+def analyze_sentiment(text, keyword):
+    """Analyze sentiment by breaking text into chunks, with keyword weighting"""
+    try:
+        if not text:
+            logger.warning("No text provided for sentiment analysis")
+            return {'category': 'neutral', 'score': 0, 'chunks': []}
+
+        # Split text into sentences and group into chunks
+        sentences = TextBlob(text).sentences
+        chunk_size = 5  # Number of sentences per chunk
+        chunks = [sentences[i:i + chunk_size] for i in range(0, len(sentences), chunk_size)]
+        
+        # Analyze each chunk
+        chunk_scores = []
+        chunk_weights = []
+        chunk_data = []  # Store detailed chunk information
+        
+        for chunk in chunks:
+            chunk_text = ' '.join(str(sentence) for sentence in chunk)
+            
+            # Get base sentiment
+            polarity = analyze_text_chunk(chunk_text)
+            
+            # Calculate keyword relevance weight
+            keyword_weight = calculate_keyword_relevance(chunk_text, keyword)
+            
+            # Store chunk data
+            chunk_data.append({
+                'text': chunk_text,
+                'sentiment_score': int(polarity * 100),
+                'keyword_weight': keyword_weight,
+                'category': 'positive' if polarity > 0.05 else ('negative' if polarity < -0.05 else 'neutral')
+            })
+            
+            # Store both score and weight for final calculation
+            chunk_scores.append(polarity)
+            chunk_weights.append(keyword_weight)
+
+        # Calculate weighted average
+        if chunk_scores:
+            final_weights = [abs(score) * weight for score, weight in zip(chunk_scores, chunk_weights)]
+            total_weight = sum(final_weights) or 1
+            average_polarity = sum(score * weight for score, weight in zip(chunk_scores, final_weights)) / total_weight
+        else:
+            average_polarity = 0
+
+        score = int(average_polarity * 100)
+        category = 'positive' if score > 5 else ('negative' if score < -5 else 'neutral')
+
+        return {
+            'category': category,
+            'score': score,
+            'chunks': chunk_data
+        }
     except Exception as e:
         logger.error(f"Sentiment analysis error: {str(e)}")
-        return 'neutral'
+        return {'category': 'neutral', 'score': 0, 'chunks': []}
 
 def get_article_preview(url):
-    """Get just the first paragraph of content"""
+    """Get full article content for sentiment analysis"""
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            # Just get the first few sentences for quick analysis
-            text = response.text[:1000]
-            return text
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Try to get article content from paragraphs
+            paragraphs = soup.find_all('p')
+            # Get all substantial paragraphs (excluding short ones that might be metadata)
+            content = ' '.join(p.text for p in paragraphs if len(p.text.split()) > 10)
+            
+            # If no substantial paragraphs found, try getting main content
+            if not content:
+                content_div = soup.find('article') or \
+                            soup.find('div', class_=['article-content', 'content', 'story-content', 'entry-content', 'story-body'])
+                if content_div:
+                    content = content_div.get_text(strip=True)
+
+            # Clean up the text
+            if content:
+                content = ' '.join(content.split())  # Remove extra whitespace
+                
+                # Debug logging
+                logger.info(f"URL: {url}")
+                logger.info(f"Content length: {len(content)}")
+                logger.info(f"Content preview: {content[:200]}...")
+                
+                return content
+
+            logger.warning(f"No content found for URL: {url}")
+            return None
     except Exception as e:
         logger.error(f"Error fetching {url}: {str(e)}")
     return None
 
-def process_article(article):
+def process_article(article, keyword):
     """Process a single article"""
     try:
         url = article.get('url', '')
         preview = get_article_preview(url)
-        sentiment = analyze_sentiment(preview)
+        
+        # Debug logging
+        logger.info(f"Processing article: {article.get('title', 'No title')}")
+        logger.info(f"Preview length: {len(preview) if preview else 0}")
+        
+        sentiment_result = analyze_sentiment(preview, keyword)
         
         return {
             'title': article.get('title', 'No title'),
             'url': url,
             'date': article.get('seendate', 'N/A'),
-            'sentiment': sentiment
+            'sentiment': sentiment_result['category'],
+            'sentiment_score': sentiment_result['score'],
+            'keyword': keyword,
+            'content_chunks': sentiment_result['chunks']
         }
     except Exception as e:
         logger.error(f"Error processing article: {str(e)}")
@@ -108,7 +220,7 @@ def query_gdelt(keyword, start_date, end_date):
             'format': 'json',
             'starttime': f"{start_formatted}000000",
             'endtime': f"{end_formatted}000000",
-            'maxrecords': 10  # Limit initial results for testing
+            'maxrecords': 10
         }
         
         logger.info(f"Querying GDELT with params: {params}")
@@ -123,8 +235,8 @@ def query_gdelt(keyword, start_date, end_date):
         processed_articles = []
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_article = {
-                executor.submit(process_article, article): article 
-                for article in data['articles'][:10]  # Process first 10 articles
+                executor.submit(lambda a: process_article(a, keyword), article): article 
+                for article in data['articles'][:10]
             }
             
             for future in as_completed(future_to_article):
@@ -143,7 +255,22 @@ def lambda_handler(event, context):
     """Lambda handler with improved error handling"""
     logger.info(f"Received event: {event}")
     
-    if event.get('httpMethod') == 'POST' and event.get('path') == '/search':
+    path = event.get('path', '')
+    
+    # Handle the breakdown page route
+    if path == '/breakdown.html':
+        html_template = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'breakdown.html'))
+        css_content = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'styles.css'))
+        html_content = html_template.replace('{{styles}}', css_content)
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'text/html'
+            },
+            'body': html_content
+        }
+    
+    if event.get('httpMethod') == 'POST' and path == '/search':
         try:
             body = json.loads(event['body'])
             keyword = body['keyword']
@@ -175,7 +302,7 @@ def lambda_handler(event, context):
             }
     
     # Handle the results page route
-    if event.get('path') == '/results' and event.get('httpMethod') == 'GET':
+    if path == '/results':
         html_template = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'results.html'))
         css_content = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'styles.css'))
         html_content = html_template.replace('{{styles}}', css_content)

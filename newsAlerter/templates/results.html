@@ -21,6 +21,10 @@
         .single-article {
             margin-bottom: 15px;
         }
+        .article-line {
+            margin-bottom: 9px;
+            line-height: 1.5;
+        }
         .sentiment-badge {
             padding: 3px 8px;
             border-radius: 12px;
@@ -38,6 +42,15 @@
         .sentiment-neutral {
             background-color: #e2e3e5;
             color: #383d41;
+        }
+        .breakdown-link {
+            color: #0066cc;
+            text-decoration: none;
+            margin-top: 8px;
+            display: inline-block;
+        }
+        .breakdown-link:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -189,6 +202,24 @@
         return `<span class="sentiment-badge sentiment-${sentiment}">${sentiment}</span>`;
     }
 
+    function getSentimentDisplay(article) {
+        const score = article.sentiment_score || 0;
+        const sentiment = article.sentiment || 'neutral';
+        return `<span class="sentiment-badge sentiment-${sentiment}">${sentiment} (${score})</span>`;
+    }
+
+    function getDomainFromUrl(url) {
+        try {
+            if (!url) return 'No URL';
+            const domain = new URL(url).hostname;
+            // Remove 'www.' if present
+            return domain.replace(/^www\./, '');
+        } catch (e) {
+            console.error('Error parsing URL:', e);
+            return url;
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         // Debug: Log the raw results from localStorage
         const results = JSON.parse(localStorage.getItem('results')) || [];
@@ -217,23 +248,25 @@
             if (group.articles.length === 1) {
                 listItem.className = 'single-article';
                 listItem.innerHTML = `
-                    <strong>Title:</strong> ${mainArticle.title || 'No title'}<br>
-                    <strong>URL:</strong> <a href="${mainArticle.url || '#'}" target="_blank">${mainArticle.url || 'No URL'}</a><br>
-                    <strong>Date:</strong> ${formatDate(mainArticle.date)}<br>
-                    <strong>Sentiment:</strong> ${mainArticle.sentiment || 'N/A'}
+                    <div class="article-line"><strong>Title:</strong> ${mainArticle.title || 'No title'}</div>
+                    <div class="article-line"><strong>URL:</strong> <a href="${mainArticle.url || '#'}" target="_blank">${getDomainFromUrl(mainArticle.url)}</a></div>
+                    <div class="article-line"><strong>Date:</strong> ${formatDate(mainArticle.date)}</div>
+                    <div class="article-line"><strong>Sentiment:</strong> ${getSentimentDisplay(mainArticle)}</div>
+                    <div class="article-line"><a href="breakdown.html?id=${mainArticle.url}" class="breakdown-link">Detailed Breakdown →</a></div>
                 `;
             } 
             // Update the grouped articles display section
             else {
                 listItem.innerHTML = `
                     <div class="article-group">
-                        <strong>Title:</strong> ${mainArticle.title || 'No title'}<br>
-                        <strong>Sentiment:</strong> ${mainArticle.sentiment || 'N/A'}<br>
-                        <strong>Available at:</strong>
+                        <div class="article-line"><strong>Title:</strong> ${mainArticle.title || 'No title'}</div>
+                        <div class="article-line"><strong>Sentiment:</strong> ${getSentimentDisplay(mainArticle)}</div>
+                        <div class="article-line"><a href="breakdown.html?id=${mainArticle.url}" class="breakdown-link">Detailed Breakdown →</a></div>
+                        <div class="article-line"><strong>Available at:</strong></div>
                         <ul class="sources-list">
                             ${group.articles.map(article => `
                                 <li>
-                                    <a href="${article.url || '#'}" target="_blank">${article.url ? new URL(article.url).hostname : 'No URL'}</a>
+                                    <a href="${article.url || '#'}" target="_blank">${getDomainFromUrl(article.url)}</a>
                                     ${article.date ? ` (${formatDate(article.date)})` : ''}
                                 </li>
                             `).join('')}
