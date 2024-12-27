@@ -8,12 +8,28 @@ from nltk_setup import download_nltk_data
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
+from transformers import pipeline
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Download NLTK data when the Lambda container starts
 download_nltk_data()
+
+MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
+MODEL_CACHE_DIR = "/tmp/model"
+
+def get_sentiment_analyzer():
+    """Get or initialize sentiment analyzer with caching"""
+    if not hasattr(get_sentiment_analyzer, 'analyzer'):
+        # Create pipeline and cache it
+        get_sentiment_analyzer.analyzer = pipeline(
+            "sentiment-analysis",
+            model=MODEL_NAME,
+            device=-1  # Use CPU
+        )
+    
+    return get_sentiment_analyzer.analyzer
 
 def read_file(file_path):
     with open(file_path, 'r') as file:
@@ -41,20 +57,84 @@ def get_article_content(url):
 
 def get_sentiment_category(polarity):
     """Convert polarity score to simple category"""
-    if polarity > 0.1:
+    if polarity > 0.3:
         return "positive"
-    elif polarity < -0.1:
+    elif polarity < -0.3:
         return "negative"
     else:
         return "neutral"
 
-def analyze_text_chunk(text):
+def analyze_text_chunk(text, keyword):
     """Analyze sentiment of a single chunk of text"""
     try:
-        if not text:
+        if not text or not keyword:
             return 0
-        blob = TextBlob(text)
-        return blob.sentiment.polarity
+            
+        # Get or initialize analyzer
+        sentiment_analyzer = get_sentiment_analyzer()
+        
+        text_lower = text.lower()
+        keyword_lower = keyword.lower()
+        
+        # Define negative context keywords
+        negative_indicators = [
+            'case against', 'lawsuit', 'settlement', 'theft', 'violation',
+            'unpaid', 'owed', 'debt', 'complaint', 'investigation',
+            'allegations', 'accused', 'charged', 'penalty', 'fine',
+            'illegal', 'misconduct', 'violation', 'dispute'
+        ]
+        
+        # Split into sentences and find all sentences containing or referring to the keyword
+        sentences = text_lower.split('.')
+        keyword_sentences = []
+        
+        for i, sentence in enumerate(sentences):
+            if keyword_lower in sentence:
+                keyword_sentences.append(sentences[i])
+                if i + 1 < len(sentences):
+                    next_sent = sentences[i + 1]
+                    if any(ref in next_sent.lower() for ref in ['it', 'they', 'their', 'them', 'these', 'those', 'this', 'that']):
+                        keyword_sentences.append(sentences[i + 1])
+        
+        if keyword_sentences:
+            # Only analyze sentences containing or referring to the keyword
+            relevant_text = ' '.join(keyword_sentences)
+            
+            # Check for negative context indicators
+            context_score = 0
+            for indicator in negative_indicators:
+                if indicator in text_lower:
+                    context_score -= 0.2  # Decrease score for each negative indicator
+            
+            # Get sentiment scores from DistilBERT
+            results = sentiment_analyzer(relevant_text, truncation=True, max_length=512)
+            
+            # More nuanced sentiment scoring
+            score = results[0]['score']  # Get confidence score
+            if results[0]['label'] == 'NEGATIVE':
+                score = -score
+            
+            # Apply context adjustment
+            score += context_score
+            
+            # Amplify weak signals
+            if abs(score) > 0.5:  # High confidence
+                score = score * 1.5
+            elif abs(score) > 0.3:  # Medium confidence
+                score = score * 1.2
+            
+            # Ensure score stays in [-1, 1] range
+            score = max(min(score, 1.0), -1.0)
+            
+            # Log the detailed scores for debugging
+            logger.info(f"DistilBERT scores for text: {results}")
+            logger.info(f"Context adjustment: {context_score}")
+            logger.info(f"Final polarity: {score}")
+            
+            return score
+        
+        return 0
+        
     except Exception as e:
         logger.error(f"Error analyzing chunk: {str(e)}")
         return 0
@@ -64,25 +144,26 @@ def calculate_keyword_relevance(text, keyword):
     text_lower = text.lower()
     keyword_lower = keyword.lower()
     
-    # Direct keyword presence (highest weight)
-    if keyword_lower in text_lower:
-        return 3.0
-    
-    # Handle multi-word keywords (like "rangoon ruby")
+    # Handle multi-word keywords with flexible matching
     if ' ' in keyword_lower:
-        # Create variations of the phrase
         words = keyword_lower.split()
         variations = [
-            ' '.join(words),  # original order
-            ' '.join(reversed(words))  # reversed order
+            f" {' '.join(words)} ",     # original order with spaces
+            f" {' '.join(reversed(words))} "  # reversed order with spaces
         ]
         
-        # Check if any variation exists in the text
-        if any(variation in text_lower for variation in variations):
+        # Add spaces around text to ensure we match whole phrases
+        text_with_spaces = f" {text_lower} "
+        
+        # Check for exact phrase matches only
+        if any(variation in text_with_spaces for variation in variations):
             return 3.0
         
-        # If no exact phrase match (in either order), return base weight
-        return 1.0
+        return 0.0
+    
+    # Single word keyword
+    if f" {keyword_lower} " in f" {text_lower} ":
+        return 3.0
     
     return 1.0
 
@@ -107,7 +188,7 @@ def analyze_sentiment(text, keyword):
             chunk_text = ' '.join(str(sentence) for sentence in chunk)
             
             # Get base sentiment
-            polarity = analyze_text_chunk(chunk_text)
+            polarity = analyze_text_chunk(chunk_text, keyword)
             
             # Calculate keyword relevance weight
             keyword_weight = calculate_keyword_relevance(chunk_text, keyword)
@@ -126,14 +207,32 @@ def analyze_sentiment(text, keyword):
 
         # Calculate weighted average
         if chunk_scores:
-            final_weights = [abs(score) * weight for score, weight in zip(chunk_scores, chunk_weights)]
+            # Give much higher weight to chunks containing the keyword
+            final_weights = []
+            for score, weight in zip(chunk_scores, chunk_weights):
+                if weight > 1:  # If chunk contains keyword
+                    # For keyword-containing chunks, give even more weight to negative sentiment
+                    if score < 0:
+                        final_weights.append(abs(score * 8) * (weight * 8))
+                    else:
+                        final_weights.append(abs(score * 2) * (weight * 2))
+                else:
+                    final_weights.append(abs(score) * weight)
+            
             total_weight = sum(final_weights) or 1
             average_polarity = sum(score * weight for score, weight in zip(chunk_scores, final_weights)) / total_weight
         else:
             average_polarity = 0
 
         score = int(average_polarity * 100)
-        category = 'positive' if score > 5 else ('negative' if score < -5 else 'neutral')
+        
+        # Adjust thresholds for VADER's scoring pattern
+        if score > 10:
+            category = 'positive'
+        elif score < -10:  # VADER is good at detecting negative sentiment
+            category = 'negative'
+        else:
+            category = 'neutral'
 
         return {
             'category': category,
