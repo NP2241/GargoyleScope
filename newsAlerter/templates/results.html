@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Analysis Results</title>
+    <style>
+        {{styles}}
+        .article-group {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .sources-list {
+            margin-top: 5px;
+            padding-left: 20px;
+        }
+        .sources-list li {
+            margin: 5px 0;
+        }
+        .single-article {
+            margin-bottom: 15px;
+        }
+        .sentiment-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
+            margin-left: 10px;
+        }
+        .sentiment-positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .sentiment-negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .sentiment-neutral {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Analysis Results (<span id="resultsCount"></span> stories)</h1>
+    <ul id="resultsList">
+    </ul>
+    <a href="/">Back to Home</a>
+</div>
+
+<script>
+    // Levenshtein distance calculation for similarity
+    function levenshteinDistance(str1, str2) {
+        const track = Array(str2.length + 1).fill(null).map(() =>
+            Array(str1.length + 1).fill(null));
+        
+        for (let i = 0; i <= str1.length; i += 1) {
+            track[0][i] = i;
+        }
+        for (let j = 0; j <= str2.length; j += 1) {
+            track[j][0] = j;
+        }
+
+        for (let j = 1; j <= str2.length; j += 1) {
+            for (let i = 1; i <= str1.length; i += 1) {
+                const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+                track[j][i] = Math.min(
+                    track[j][i - 1] + 1,
+                    track[j - 1][i] + 1,
+                    track[j - 1][i - 1] + indicator
+                );
+            }
+        }
+        return track[str2.length][str1.length];
+    }
+
+    // Calculate similarity ratio between two strings
+    function similarityRatio(str1, str2) {
+        const maxLength = Math.max(str1.length, str2.length);
+        const distance = levenshteinDistance(str1, str2);
+        return (maxLength - distance) / maxLength;
+    }
+
+    function areSimilarArticles(article1, article2) {
+        // First check: Title similarity (70% or more)
+        const title1 = article1.title.toLowerCase();
+        const title2 = article2.title.toLowerCase();
+        const titleSimilarity = similarityRatio(title1, title2);
+        
+        if (titleSimilarity < 0.7) {
+            console.log(`Title similarity too low: ${titleSimilarity}`);
+            return false;
+        }
+
+        // Second check: Authors must match if both exist
+        if (article1.author && article2.author) {
+            const authorSimilarity = similarityRatio(
+                article1.author.toLowerCase(), 
+                article2.author.toLowerCase()
+            );
+            if (authorSimilarity < 0.8) {
+                console.log(`Author similarity too low: ${authorSimilarity}`);
+                return false;
+            }
+        }
+
+        // Third check: Content similarity if available
+        if (article1.content && article2.content) {
+            // Compare first 200 characters of content
+            const content1 = article1.content.toLowerCase().slice(0, 200);
+            const content2 = article2.content.toLowerCase().slice(0, 200);
+            const contentSimilarity = similarityRatio(content1, content2);
+            
+            if (contentSimilarity < 0.7) {
+                console.log(`Content similarity too low: ${contentSimilarity}`);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function groupSimilarArticles(articles) {
+        const groups = [];
+        
+        articles.forEach(article => {
+            const existingGroup = groups.find(group => 
+                group.articles.some(groupArticle => 
+                    areSimilarArticles(groupArticle, article)
+                )
+            );
+            
+            if (existingGroup) {
+                existingGroup.articles.push(article);
+            } else {
+                groups.push({
+                    articles: [article]
+                });
+            }
+        });
+        
+        return groups;
+    }
+
+    function getSentimentBadge(sentiment) {
+        return `<span class="sentiment-badge sentiment-${sentiment}">${sentiment}</span>`;
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Debug: Log the raw results from localStorage
+        const results = JSON.parse(localStorage.getItem('results')) || [];
+        console.log('Raw results:', results);
+
+        // Debug: Log after grouping
+        const groupedResults = groupSimilarArticles(results);
+        console.log('Grouped results:', groupedResults);
+        
+        document.getElementById('resultsCount').textContent = groupedResults.length;
+
+        const resultsList = document.getElementById('resultsList');
+        
+        if (groupedResults.length === 0) {
+            // Show message if no results
+            resultsList.innerHTML = '<li>No results found</li>';
+            return;
+        }
+
+        groupedResults.forEach(group => {
+            const listItem = document.createElement('li');
+            const mainArticle = group.articles[0];
+            console.log('Processing article:', mainArticle); // Debug: Log each article
+
+            // Single article display
+            if (group.articles.length === 1) {
+                listItem.className = 'single-article';
+                listItem.innerHTML = `
+                    <strong>Title:</strong> ${mainArticle.title || 'No title'}<br>
+                    <strong>URL:</strong> <a href="${mainArticle.url || '#'}" target="_blank">${mainArticle.url || 'No URL'}</a><br>
+                    <strong>Date:</strong> ${mainArticle.date || 'N/A'}<br>
+                    <strong>Sentiment:</strong> ${mainArticle.sentiment || 'N/A'}
+                `;
+            } 
+            // Grouped articles display
+            else {
+                listItem.innerHTML = `
+                    <div class="article-group">
+                        <strong>Title:</strong> ${mainArticle.title || 'No title'}<br>
+                        <strong>Sentiment:</strong> ${mainArticle.sentiment || 'N/A'}<br>
+                        <strong>Available at:</strong>
+                        <ul class="sources-list">
+                            ${group.articles.map(article => `
+                                <li>
+                                    <a href="${article.url || '#'}" target="_blank">${article.url ? new URL(article.url).hostname : 'No URL'}</a>
+                                    ${article.date ? ` (${article.date})` : ''}
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            resultsList.appendChild(listItem);
+        });
+    });
+</script>
+</body>
+</html> 

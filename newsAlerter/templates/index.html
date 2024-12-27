@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Article Sentiment Analyzer</title>
+    <style>
+        /* CSS will be injected here */
+        {{styles}}
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.1.2/socket.io.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>Article Sentiment Analyzer</h1>
+    <form id="searchForm" onsubmit="handleSubmit(event)">
+        <label for="keyword">Keyword:</label>
+        <input type="text" id="keyword" name="keyword" required>
+        <br>
+        <label for="startDate">Start Date (YYYYMMDD):</label>
+        <input type="text" id="startDate" name="startDate" required>
+        <br>
+        <label for="endDate">End Date (YYYYMMDD):</label>
+        <input type="text" id="endDate" name="endDate" required>
+        <br>
+        <p id="progressText" style="display:none;">Query Progress: <span id="progressValue">0</span>%</p>
+        <button type="submit">Analyze</button>
+    </form>
+</div>
+
+<script>
+    const socket = io();
+
+    async function handleSubmit(event) {
+        event.preventDefault();
+        
+        const keyword = document.getElementById('keyword').value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        try {
+            console.log('Submitting search:', { keyword, startDate, endDate }); // Debug log
+            
+            const response = await fetch('/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    keyword,
+                    startDate,
+                    endDate
+                })
+            });
+            
+            const data = await response.json();
+            console.log('Received data:', data); // Debug log
+            
+            if (data.articles) {
+                localStorage.setItem('results', JSON.stringify(data.articles));
+                console.log('Stored in localStorage:', localStorage.getItem('results')); // Debug log
+                window.location.href = '/results';
+            } else {
+                console.error('No articles in response:', data);
+                alert('No results found');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error performing search');
+        }
+    }
+
+    socket.on('progress_update', function(data) {
+        document.getElementById('progressValue').textContent = data.progress.toFixed(2);
+    });
+
+    socket.on('analysis_complete', function(data) {
+        localStorage.setItem('results', JSON.stringify(data.results));
+        window.location.href = '/results';
+    });
+</script>
+</body>
+</html> 
