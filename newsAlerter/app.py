@@ -9,6 +9,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 from transformers import pipeline
+import re
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -19,50 +20,20 @@ download_nltk_data()
 MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
 MODEL_CACHE_DIR = "/tmp/model"
 
+def read_file(file_path):
+    """Read and return the contents of a file"""
+    with open(file_path, 'r') as file:
+        return file.read()
+
 def get_sentiment_analyzer():
     """Get or initialize sentiment analyzer with caching"""
     if not hasattr(get_sentiment_analyzer, 'analyzer'):
-        # Create pipeline and cache it
         get_sentiment_analyzer.analyzer = pipeline(
             "sentiment-analysis",
             model=MODEL_NAME,
             device=-1  # Use CPU
         )
-    
     return get_sentiment_analyzer.analyzer
-
-def read_file(file_path):
-    with open(file_path, 'r') as file:
-        return file.read()
-
-def format_date_for_gdelt(date_str):
-    """Convert YYYY-MM-DD to YYYYMMDDHHMMSS"""
-    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-    return date_obj.strftime('%Y%m%d000000')
-
-def get_article_content(url):
-    """Fetch article content"""
-    try:
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Get article text from paragraphs
-        paragraphs = soup.find_all('p')
-        article_text = ' '.join([p.text for p in paragraphs])
-        
-        return article_text
-    except Exception as e:
-        print(f"Error fetching content from {url}: {str(e)}")
-        return None
-
-def get_sentiment_category(polarity):
-    """Convert polarity score to simple category"""
-    if polarity > 0.3:
-        return "positive"
-    elif polarity < -0.3:
-        return "negative"
-    else:
-        return "neutral"
 
 def analyze_text_chunk(text, keyword):
     """Analyze sentiment of a single chunk of text"""
@@ -70,65 +41,42 @@ def analyze_text_chunk(text, keyword):
         if not text or not keyword:
             return 0
             
-        # Get or initialize analyzer
         sentiment_analyzer = get_sentiment_analyzer()
-        
         text_lower = text.lower()
         keyword_lower = keyword.lower()
         
-        # Define negative context keywords
-        negative_indicators = [
-            'case against', 'lawsuit', 'settlement', 'theft', 'violation',
-            'unpaid', 'owed', 'debt', 'complaint', 'investigation',
-            'allegations', 'accused', 'charged', 'penalty', 'fine',
-            'illegal', 'misconduct', 'violation', 'dispute'
-        ]
-        
-        # Split into sentences and find all sentences containing or referring to the keyword
-        sentences = text_lower.split('.')
+        # Find sentences containing keyword
         keyword_sentences = []
-        
+        sentences = text.split('.')
         for i, sentence in enumerate(sentences):
-            if keyword_lower in sentence:
+            if keyword_lower in sentence.lower():
+                if i > 0:
+                    keyword_sentences.append(sentences[i-1])
                 keyword_sentences.append(sentences[i])
                 if i + 1 < len(sentences):
-                    next_sent = sentences[i + 1]
-                    if any(ref in next_sent.lower() for ref in ['it', 'they', 'their', 'them', 'these', 'those', 'this', 'that']):
-                        keyword_sentences.append(sentences[i + 1])
+                    keyword_sentences.append(sentences[i + 1])
         
         if keyword_sentences:
-            # Only analyze sentences containing or referring to the keyword
             relevant_text = ' '.join(keyword_sentences)
-            
-            # Check for negative context indicators
-            context_score = 0
-            for indicator in negative_indicators:
-                if indicator in text_lower:
-                    context_score -= 0.2  # Decrease score for each negative indicator
-            
-            # Get sentiment scores from DistilBERT
+            # Ensure text isn't too long for the model
+            if len(relevant_text) > 512:
+                relevant_text = relevant_text[:512]
+
             results = sentiment_analyzer(relevant_text, truncation=True, max_length=512)
             
-            # More nuanced sentiment scoring
-            score = results[0]['score']  # Get confidence score
+            score = results[0]['score']
             if results[0]['label'] == 'NEGATIVE':
                 score = -score
             
-            # Apply context adjustment
-            score += context_score
-            
             # Amplify weak signals
-            if abs(score) > 0.5:  # High confidence
+            if abs(score) > 0.5:
                 score = score * 1.5
-            elif abs(score) > 0.3:  # Medium confidence
+            elif abs(score) > 0.3:
                 score = score * 1.2
             
-            # Ensure score stays in [-1, 1] range
             score = max(min(score, 1.0), -1.0)
             
-            # Log the detailed scores for debugging
             logger.info(f"DistilBERT scores for text: {results}")
-            logger.info(f"Context adjustment: {context_score}")
             logger.info(f"Final polarity: {score}")
             
             return score
@@ -253,7 +201,7 @@ def get_article_preview(url):
             # Try to get article content from paragraphs
             paragraphs = soup.find_all('p')
             # Get all substantial paragraphs (excluding short ones that might be metadata)
-            content = ' '.join(p.text for p in paragraphs if len(p.text.split()) > 10)
+            content = ' '.join(p.text.strip() for p in paragraphs if len(p.text.split()) > 10 and not any(skip in p.text.lower() for skip in ['cookie', 'subscribe', 'advertisement']))
             
             # If no substantial paragraphs found, try getting main content
             if not content:
@@ -265,6 +213,8 @@ def get_article_preview(url):
             # Clean up the text
             if content:
                 content = ' '.join(content.split())  # Remove extra whitespace
+                # Remove common noise
+                content = re.sub(r'(advertisement|subscribe now|sign up|cookie policy)', '', content, flags=re.IGNORECASE)
                 
                 # Debug logging
                 logger.info(f"URL: {url}")
@@ -319,7 +269,8 @@ def query_gdelt(keyword, start_date, end_date):
             'format': 'json',
             'starttime': f"{start_formatted}000000",
             'endtime': f"{end_formatted}000000",
-            'maxrecords': 10
+            'maxrecords': 250,  # Get more results
+            'sort': 'DateDesc'  # Get most recent first
         }
         
         logger.info(f"Querying GDELT with params: {params}")
