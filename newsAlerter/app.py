@@ -1,6 +1,7 @@
 import os
 import logging
 import nltk
+import re
 from nltk.tokenize import sent_tokenize
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import torch
@@ -91,65 +92,79 @@ def get_relevant_sentences(text, entity_name):
         logger.info(f"Extracting sentences relevant to {entity_name}...")
         resolved_text = text  # For now, just use the original text
         
-        ner_pipeline = pipeline("ner", grouped_entities=True)
-        entities = ner_pipeline(resolved_text)
+        # Split text into sentences using NLTK's sentence tokenizer
+        sentences = sent_tokenize(resolved_text)
+        logger.info(f"Found {len(sentences)} total sentences")
         
-        # Split text into sentences and filter for relevant ones
-        sentences = resolved_text.split('. ')
-        relevant_sentences = [
-            sent for sent in sentences 
-            for entity in entities 
-            if entity_name.lower() in entity['word'].lower()
-        ]
+        # Filter sentences containing the entity name
+        relevant_sentences = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            # Check for both "Rangoon Ruby" and "Burma Ruby" mentions
+            if sentence and (
+                entity_name.lower() in sentence.lower() or 
+                "burma ruby" in sentence.lower() or
+                "rangoon" in sentence.lower()
+            ):
+                logger.info(f"Found relevant sentence: {sentence[:50]}...")
+                relevant_sentences.append(sentence)
         
         logger.info(f"Found {len(relevant_sentences)} relevant sentences")
+        if len(relevant_sentences) < 3:
+            logger.warning("Found fewer sentences than expected, dumping all sentences for debug:")
+            for i, s in enumerate(sentences):
+                logger.info(f"Sentence {i}: {s[:50]}...")
+        
         return relevant_sentences
     except Exception as e:
-        logger.error(f"Error in NER: {str(e)}")
+        logger.error(f"Error in sentence extraction: {str(e)}")
         logger.error("Stack trace: ", exc_info=True)
-        return text.split('. ')  # Return all sentences if NER fails
+        # Return original text split by periods as fallback
+        return [s.strip() for s in text.split('.') if s.strip()]
 
 def analyze_text(text, entity_name="Rangoon Ruby"):
     """Analyze sentiment of text using our model"""
     try:
         logger.info("Starting sentiment analysis...")
-        logger.info(f"Input text: {text[:100]}...")  # Log first 100 chars
-        # First, get relevant sentences
+        logger.info(f"Input text: {text[:100]}...")
+        
         relevant_sentences = get_relevant_sentences(text, entity_name)
-        logger.info(f"Found {len(relevant_sentences)} relevant sentences: {relevant_sentences}")
+        logger.info(f"Found {len(relevant_sentences)} relevant sentences")
         if not relevant_sentences:
             logger.info("No relevant sentences found")
-            return "No sentences found mentioning " + entity_name
-
-        # Load model and tokenizer from local directory
+            return text
+        
+        # Load model and tokenizer
         logger.info("Loading model and tokenizer from /var/task/model")
         tokenizer = AutoTokenizer.from_pretrained('/var/task/model')
         model = AutoModelForSequenceClassification.from_pretrained('/var/task/model')
-        model.eval()  # Set to evaluation mode
+        model.eval()
         
-        analyzed_sentences = []
+        # Create a map of sentences to their sentiment ratings
+        sentiment_map = {}
         
         for sentence in relevant_sentences:
             if sentence.strip():
-                # Get sentiment for each sentence
                 inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True)
                 with torch.no_grad():
                     outputs = model(**inputs)
                     scores = torch.nn.functional.softmax(outputs.logits, dim=1)
-                    rating = torch.argmax(scores).item() + 1  # Model outputs 1-5 rating
-                    
-                # Convert 1-5 rating to sentiment and add HTML styling
-                if rating >= 4:
-                    formatted = f'<span class="positive">{sentence}</span>'
-                elif rating <= 2:
-                    formatted = f'<span class="negative">{sentence}</span>'
-                else:
-                    formatted = sentence
-                    
-                analyzed_sentences.append(formatted)
+                    rating = torch.argmax(scores).item() + 1
+                sentiment_map[sentence.strip()] = rating
+        
+        # Process the full text, highlighting relevant sentences
+        processed_text = text
+        # Sort sentences by length (longest first) to avoid partial replacements
+        sorted_sentences = sorted(sentiment_map.keys(), key=len, reverse=True)
+        for sentence in sorted_sentences:
+            rating = sentiment_map[sentence]
+            if rating >= 4:
+                processed_text = processed_text.replace(sentence, f'<span class="positive">{sentence}</span>')
+            elif rating <= 2:
+                processed_text = processed_text.replace(sentence, f'<span class="negative">{sentence}</span>')
         
         logger.info("Sentiment analysis complete!")
-        return ' '.join(analyzed_sentences)
+        return processed_text
     except Exception as e:
         logger.error(f"Error in sentiment analysis: {str(e)}")
         logger.error(f"Stack trace: ", exc_info=True)
