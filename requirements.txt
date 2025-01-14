@@ -1,7 +1,6 @@
-flask
-textblob==0.17.1
-beautifulsoup4==4.12.3
+numpy>=1.17.3
 requests==2.31.0
+python-dotenv==1.0.0
+beautifulsoup4==4.12.3
 nltk==3.8.1
-boto3
-pytest 
+transformers==4.30.2 

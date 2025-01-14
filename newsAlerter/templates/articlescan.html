@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Article Scan</title>
+    <style>
+        {{styles}}
+        .article-container {
+            margin: 20px;
+            padding: 20px;
+            background: #2f3337;
+            border-radius: 8px;
+            color: #ffffff;
+            line-height: 1.6;
+        }
+        .article-text {
+            white-space: pre-wrap;
+            font-family: Arial, sans-serif;
+        }
+        .positive {
+            background-color: rgba(40, 167, 69, 0.2);  /* Green with transparency */
+            padding: 2px 0;
+        }
+        .negative {
+            background-color: rgba(220, 53, 69, 0.2);  /* Red with transparency */
+            padding: 2px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Article Scan</h1>
+        <div class="article-container">
+            <div class="article-text">
+                {{article_content}}
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

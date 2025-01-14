@@ -9,7 +9,7 @@ Description: >
 Globals:
   Function:
     Timeout: 30
-    MemorySize: 256
+    MemorySize: 1024
 
     Tracing: Active
     # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
@@ -21,11 +21,9 @@ Resources:
   NewsAlerterFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: newsAlerter/
-      Handler: app.lambda_handler
-      Runtime: python3.9
+      PackageType: Image
       Architectures:
-        - x86_64
+        - arm64
       MemorySize: 4096
       Timeout: 60
       EphemeralStorage:
@@ -51,11 +49,23 @@ Resources:
           Properties:
             Path: /breakdown.html
             Method: get
+        ArticleScan:
+          Type: Api
+          Properties:
+            Path: /articlescan.html
+            Method: get
         Root:
           Type: Api
           Properties:
             Path: /
             Method: get
+      Environment:
+        Variables:
+          NEWS_API_KEY: ${NEWS_API_KEY}
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: python3.9-v1
 
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
@@ -70,6 +80,7 @@ Resources:
       ResourceGroupName:
         Ref: ApplicationResourceGroup
       AutoConfigurationEnabled: 'true'
+
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM

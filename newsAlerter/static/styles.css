@@ -92,4 +92,12 @@ input, button {
     padding: 15px;
     border: 1px solid #ddd;
     border-radius: 5px;
+}
+
+.positive {
+    background-color: #90EE90;  /* Light green */
+}
+
+.negative {
+    background-color: #FFB6C1;  /* Light red */
 } 
