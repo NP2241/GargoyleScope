@@ -25,7 +25,7 @@ Resources:
       Architectures:
         - arm64
       MemorySize: 4096
-      Timeout: 60
+      Timeout: 300
       EphemeralStorage:
         Size: 1024
       Events:

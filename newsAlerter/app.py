@@ -1,14 +1,10 @@
-import json
 import os
-import requests
-import time
-from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 import logging
 import nltk
 from nltk.tokenize import sent_tokenize
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import torch
+from dotenv import load_dotenv
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -16,34 +12,124 @@ logger.setLevel(logging.INFO)
 # Load environment variables
 load_dotenv()
 
+# Set NLTK data path
+nltk.data.path.append("/root/nltk_data")
+
 # Download required NLTK data
-nltk.download('punkt')
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
+# Initialize coreference resolution model
+coref_predictor = None
+
+def get_coref_predictor():
+    """Lazy load the coreference resolution model"""
+    global coref_predictor
+    if coref_predictor is None:
+        logger.info("Loading coreference resolution model...")
+        coref_predictor = Predictor.from_path(
+            "https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz"
+        )
+    return coref_predictor
+
+def resolve_coreferences(text, entity_name):
+    """Resolve coreferences in text, focusing on references to the target entity"""
+    try:
+        logger.info("Resolving coreferences...")
+        predictor = get_coref_predictor()
+        coref_result = predictor.predict(document=text)
+        
+        # Get clusters and document
+        clusters = coref_result.get("clusters", [])
+        words = coref_result.get("document", [])
+        
+        # Find clusters that contain the entity name
+        entity_clusters = []
+        for cluster in clusters:
+            for mention in cluster:
+                mention_text = " ".join(words[mention[0]:mention[1]+1])
+                if entity_name.lower() in mention_text.lower():
+                    entity_clusters.append(cluster)
+                    break
+        
+        # Replace coreferent mentions with the entity name
+        resolved_text = text
+        for cluster in entity_clusters:
+            for mention in cluster:
+                mention_text = " ".join(words[mention[0]:mention[1]+1])
+                if entity_name.lower() not in mention_text.lower():
+                    resolved_text = resolved_text.replace(mention_text, entity_name)
+        
+        logger.info("Coreference resolution complete")
+        return resolved_text
+    except Exception as e:
+        logger.error(f"Error in coreference resolution: {str(e)}")
+        logger.error("Stack trace: ", exc_info=True)
+        return text  # Return original text if resolution fails
 
 def read_file(file_path):
     """Read and return the contents of a file"""
     try:
+        logger.info(f"Attempting to read file: {file_path}")
+        logger.info(f"Current directory: {os.getcwd()}")
+        logger.info(f"Directory contents: {os.listdir('.')}")
+        if os.path.exists(file_path):
+            logger.info(f"File exists at {file_path}")
+        else:
+            logger.info(f"File not found at {file_path}")
         with open(file_path, 'r') as file:
             return file.read()
     except Exception as e:
         logger.error(f"Error reading file {file_path}: {str(e)}")
         return "Error loading article text"
 
-def analyze_text(text):
+def get_relevant_sentences(text, entity_name):
+    """Extract sentences relevant to the target entity using NER"""
+    try:
+        logger.info(f"Extracting sentences relevant to {entity_name}...")
+        resolved_text = text  # For now, just use the original text
+        
+        ner_pipeline = pipeline("ner", grouped_entities=True)
+        entities = ner_pipeline(resolved_text)
+        
+        # Split text into sentences and filter for relevant ones
+        sentences = resolved_text.split('. ')
+        relevant_sentences = [
+            sent for sent in sentences 
+            for entity in entities 
+            if entity_name.lower() in entity['word'].lower()
+        ]
+        
+        logger.info(f"Found {len(relevant_sentences)} relevant sentences")
+        return relevant_sentences
+    except Exception as e:
+        logger.error(f"Error in NER: {str(e)}")
+        logger.error("Stack trace: ", exc_info=True)
+        return text.split('. ')  # Return all sentences if NER fails
+
+def analyze_text(text, entity_name="Rangoon Ruby"):
     """Analyze sentiment of text using our model"""
     try:
         logger.info("Starting sentiment analysis...")
+        logger.info(f"Input text: {text[:100]}...")  # Log first 100 chars
+        # First, get relevant sentences
+        relevant_sentences = get_relevant_sentences(text, entity_name)
+        logger.info(f"Found {len(relevant_sentences)} relevant sentences: {relevant_sentences}")
+        if not relevant_sentences:
+            logger.info("No relevant sentences found")
+            return "No sentences found mentioning " + entity_name
+
         # Load model and tokenizer from local directory
         logger.info("Loading model and tokenizer from /var/task/model")
         tokenizer = AutoTokenizer.from_pretrained('/var/task/model')
         model = AutoModelForSequenceClassification.from_pretrained('/var/task/model')
         model.eval()  # Set to evaluation mode
         
-        # Split into sentences
-        sentences = sent_tokenize(text)
-        logger.info(f"Analyzing {len(sentences)} sentences...")
         analyzed_sentences = []
         
-        for sentence in sentences:
+        for sentence in relevant_sentences:
             if sentence.strip():
                 # Get sentiment for each sentence
                 inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True)
@@ -51,19 +137,13 @@ def analyze_text(text):
                     outputs = model(**inputs)
                     scores = torch.nn.functional.softmax(outputs.logits, dim=1)
                     rating = torch.argmax(scores).item() + 1  # Model outputs 1-5 rating
-                    logger.info(f"\nSentence: {sentence[:50]}...")
-                    logger.info(f"Sentiment scores: {[score.item() for score in scores[0]]}")
-                    logger.info(f"Rating: {rating}/5")
                     
                 # Convert 1-5 rating to sentiment and add HTML styling
                 if rating >= 4:
-                    logger.info("Sentiment: POSITIVE")
                     formatted = f'<span class="positive">{sentence}</span>'
                 elif rating <= 2:
-                    logger.info("Sentiment: NEGATIVE")
                     formatted = f'<span class="negative">{sentence}</span>'
                 else:
-                    logger.info("Sentiment: NEUTRAL")
                     formatted = sentence
                     
                 analyzed_sentences.append(formatted)
@@ -76,78 +156,60 @@ def analyze_text(text):
         return text
 
 def lambda_handler(event, context):
-    """Lambda handler with improved error handling"""
+    """Lambda handler for article analysis"""
     logger.info(f"Received event: {event}")
     
     path = event.get('path', '')
     
-    # Handle the breakdown page route
-    if path == '/breakdown.html':
-        html_template = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'breakdown.html'))
-        css_content = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'styles.css'))
-        html_content = html_template.replace('{{styles}}', css_content)
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'text/html'
-            },
-            'body': html_content
-        }
-    
-    if event.get('httpMethod') == 'POST' and path == '/search':
+    # Handle POST request for text analysis
+    if event.get('httpMethod') == 'POST' and path == '/analyze':
         try:
+            import json
             body = json.loads(event['body'])
-            keyword = body['keyword']
-            start_date = body['startDate']
-            end_date = body['endDate']
-            
-            # For testing, return mock results
-            mock_results = {
-                'articles': [
-                    {
-                        'title': 'Test Article 1',
-                        'url': 'http://example.com/1',
-                        'date': '2024-01-03',
-                        'sentiment': 'positive',
-                        'sentiment_score': 0.8
-                    },
-                    {
-                        'title': 'Test Article 2',
-                        'url': 'http://example.com/2',
-                        'date': '2024-01-03',
-                        'sentiment': 'negative',
-                        'sentiment_score': -0.6
-                    }
-                ]
-            }
-            
+            text = body.get('text', '')
+            analyzed_text = analyze_text(text)
             return {
                 'statusCode': 200,
                 'headers': {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
                 },
-                'body': json.dumps(mock_results)
+                'body': json.dumps({'analyzed_text': analyzed_text})
             }
         except Exception as e:
-            logger.error(f"Handler error: {str(e)}")
+            logger.error(f"Analysis error: {str(e)}")
             return {
                 'statusCode': 500,
                 'headers': {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*'
                 },
-                'body': json.dumps({
-                    'error': str(e),
-                    'articles': []
-                })
+                'body': json.dumps({'error': str(e)})
             }
     
-    # Handle the results page route
-    if path == '/results':
-        html_template = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'results.html'))
-        css_content = read_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'styles.css'))
+    # Handle the articlescan page route
+    if path == '/articlescan.html':
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        logger.info(f"Base directory: {base_dir}")
+        
+        template_path = os.path.join(base_dir, 'templates', 'articlescan.html')
+        css_path = os.path.join(base_dir, 'static', 'styles.css')
+        test_article_path = os.path.join(base_dir, 'testArticle.txt')
+        
+        logger.info(f"Loading template from: {template_path}")
+        logger.info(f"Loading CSS from: {css_path}")
+        logger.info(f"Loading test article from: {test_article_path}")
+        
+        html_template = read_file(template_path)
+        css_content = read_file(css_path)
+        article_content = read_file(test_article_path)
+        
+        # Analyze the test article
+        analyzed_text = analyze_text(article_content)
+        
         html_content = html_template.replace('{{styles}}', css_content)
+        html_content = html_content.replace('{{article_content}}', analyzed_text)
+        
         return {
             'statusCode': 200,
             'headers': {
@@ -155,24 +217,8 @@ def lambda_handler(event, context):
             },
             'body': html_content
         }
-
-    # Serve articlescan.html as the main page
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    html_template = read_file(os.path.join(current_dir, 'templates', 'articlescan.html'))
-    css_content = read_file(os.path.join(current_dir, 'static', 'styles.css'))
-    
-    # Read and analyze the test article
-    article_content = read_file(os.path.join(current_dir, 'testArticle.txt'))
-    analyzed_content = analyze_text(article_content)
-    
-    # Replace both placeholders
-    html_content = html_template.replace('{{styles}}', css_content)
-    html_content = html_content.replace('{{article_content}}', analyzed_content)
     
     return {
-        'statusCode': 200,
-        'headers': {
-            'Content-Type': 'text/html'
-        },
-        'body': html_content
+        'statusCode': 404,
+        'body': 'Not Found'
     }
