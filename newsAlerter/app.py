@@ -6,6 +6,7 @@ from nltk.tokenize import sent_tokenize
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import torch
 from dotenv import load_dotenv
+from allennlp.predictors.predictor import Predictor
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -53,6 +54,11 @@ def resolve_coreferences(text, entity_name):
                 mention_text = " ".join(words[mention[0]:mention[1]+1])
                 if entity_name.lower() in mention_text.lower():
                     entity_clusters.append(cluster)
+                    logger.info(f"Found coreference cluster for {entity_name}:")
+                    # Print all mentions in this cluster
+                    for ref_mention in cluster:
+                        ref_text = " ".join(words[ref_mention[0]:ref_mention[1]+1])
+                        logger.info(f"  → Reference: '{ref_text}'")
                     break
         
         # Replace coreferent mentions with the entity name
@@ -61,6 +67,7 @@ def resolve_coreferences(text, entity_name):
             for mention in cluster:
                 mention_text = " ".join(words[mention[0]:mention[1]+1])
                 if entity_name.lower() not in mention_text.lower():
+                    logger.info(f"Replacing '{mention_text}' with '{entity_name}'")
                     resolved_text = resolved_text.replace(mention_text, entity_name)
         
         logger.info("Coreference resolution complete")
@@ -87,32 +94,39 @@ def read_file(file_path):
         return "Error loading article text"
 
 def get_relevant_sentences(text, entity_name):
-    """Extract sentences relevant to the target entity using NER"""
+    """Extract sentences relevant to the target entity using NER and coreference resolution"""
     try:
         logger.info(f"Extracting sentences relevant to {entity_name}...")
-        resolved_text = text  # For now, just use the original text
         
-        # Split text into sentences using NLTK's sentence tokenizer
-        sentences = sent_tokenize(resolved_text)
-        logger.info(f"Found {len(sentences)} total sentences")
+        # First resolve coreferences
+        resolved_text = resolve_coreferences(text, entity_name)
+        logger.info("Coreference resolution completed")
         
-        # Filter sentences containing the entity name
+        # Split both original and resolved text into sentences
+        original_sentences = sent_tokenize(text)
+        resolved_sentences = sent_tokenize(resolved_text)
+        logger.info(f"Found {len(original_sentences)} total sentences")
+        
+        # Filter sentences containing the entity name or its resolved references
         relevant_sentences = []
-        for sentence in sentences:
-            sentence = sentence.strip()
-            # Check for both "Rangoon Ruby" and "Burma Ruby" mentions
-            if sentence and (
-                entity_name.lower() in sentence.lower() or 
-                "burma ruby" in sentence.lower() or
-                "rangoon" in sentence.lower()
-            ):
-                logger.info(f"Found relevant sentence: {sentence[:50]}...")
-                relevant_sentences.append(sentence)
+        for orig_sent, resolved_sent in zip(original_sentences, resolved_sentences):
+            orig_sent = orig_sent.strip()
+            resolved_sent = resolved_sent.strip()
+            
+            # Check both original and resolved sentences for entity mentions
+            is_relevant = (
+                entity_name.lower() in orig_sent.lower() or 
+                entity_name.lower() in resolved_sent.lower()
+            )
+            
+            if is_relevant:
+                logger.info(f"Found relevant sentence: {orig_sent[:50]}...")
+                relevant_sentences.append(orig_sent)
         
         logger.info(f"Found {len(relevant_sentences)} relevant sentences")
         if len(relevant_sentences) < 3:
             logger.warning("Found fewer sentences than expected, dumping all sentences for debug:")
-            for i, s in enumerate(sentences):
+            for i, s in enumerate(original_sentences):
                 logger.info(f"Sentence {i}: {s[:50]}...")
         
         return relevant_sentences
@@ -128,7 +142,11 @@ def analyze_text(text, entity_name="Rangoon Ruby"):
         logger.info("Starting sentiment analysis...")
         logger.info(f"Input text: {text[:100]}...")
         
-        relevant_sentences = get_relevant_sentences(text, entity_name)
+        # First resolve coreferences in the entire text
+        resolved_text = resolve_coreferences(text, entity_name)
+        logger.info("Coreference resolution completed")
+        
+        relevant_sentences = get_relevant_sentences(resolved_text, entity_name)
         logger.info(f"Found {len(relevant_sentences)} relevant sentences")
         if not relevant_sentences:
             logger.info("No relevant sentences found")
@@ -150,18 +168,26 @@ def analyze_text(text, entity_name="Rangoon Ruby"):
                     outputs = model(**inputs)
                     scores = torch.nn.functional.softmax(outputs.logits, dim=1)
                     rating = torch.argmax(scores).item() + 1
-                sentiment_map[sentence.strip()] = rating
+                    # Convert 1-5 scale to -10 to 10 scale
+                    normalized_score = ((rating - 1) / 4 * 20) - 10
+                    sentiment_map[sentence.strip()] = (rating, normalized_score)
         
         # Process the full text, highlighting relevant sentences
         processed_text = text
         # Sort sentences by length (longest first) to avoid partial replacements
         sorted_sentences = sorted(sentiment_map.keys(), key=len, reverse=True)
         for sentence in sorted_sentences:
-            rating = sentiment_map[sentence]
+            rating, score = sentiment_map[sentence]
             if rating >= 4:
-                processed_text = processed_text.replace(sentence, f'<span class="positive">{sentence}</span>')
+                processed_text = processed_text.replace(
+                    sentence, 
+                    f'<span class="positive" data-sentiment="{score:.1f}">{sentence}</span>'
+                )
             elif rating <= 2:
-                processed_text = processed_text.replace(sentence, f'<span class="negative">{sentence}</span>')
+                processed_text = processed_text.replace(
+                    sentence, 
+                    f'<span class="negative" data-sentiment="{score:.1f}">{sentence}</span>'
+                )
         
         logger.info("Sentiment analysis complete!")
         return processed_text
