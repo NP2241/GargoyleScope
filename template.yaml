@@ -10,7 +10,6 @@ Globals:
   Function:
     Timeout: 30
     MemorySize: 1024
-
     Tracing: Active
     # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
     LoggingConfig:
@@ -21,13 +20,17 @@ Resources:
   NewsAlerterFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
+      FunctionName: newsAlerter
       PackageType: Image
-      Architectures:
+      Architectures: 
         - arm64
       MemorySize: 4096
       Timeout: 300
       EphemeralStorage:
-        Size: 1024
+        Size: 4096
+      Environment:
+        Variables:
+          NEWS_API_KEY: ${NEWS_API_KEY}
       Events:
         NewsAlerter:
           Type: Api
@@ -59,9 +62,15 @@ Resources:
           Properties:
             Path: /
             Method: get
-      Environment:
-        Variables:
-          NEWS_API_KEY: ${NEWS_API_KEY}
+      FileSystemConfigs:
+        - Arn: !GetAtt AccessPoint.Arn
+          LocalMountPath: /mnt/elasticfs
+      VpcConfig:
+        SecurityGroupIds: 
+          - !Ref LambdaSecurityGroup
+        SubnetIds: 
+          - !Ref Subnet1
+          - !Ref Subnet2
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: .
@@ -80,6 +89,33 @@ Resources:
       ResourceGroupName:
         Ref: ApplicationResourceGroup
       AutoConfigurationEnabled: 'true'
+
+  ModelFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref ModelFileSystem
+      SubnetId: !Ref Subnet1
+      SecurityGroups: 
+        - !Ref EFSSecurityGroup
+
+  AccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref ModelFileSystem
+      PosixUser:
+        Uid: "1000"
+        Gid: "1000"
+      RootDirectory:
+        Path: "/models"
+        CreationInfo:
+          OwnerUid: "1000"
+          OwnerGid: "1000"
+          Permissions: "755"
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function

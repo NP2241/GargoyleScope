@@ -1,8 +1,10 @@
-numpy==1.21.6
-requests==2.31.0
-python-dotenv==1.0.0
-beautifulsoup4==4.12.3
-nltk==3.8.1
+# All dependencies are installed directly in Dockerfile
+# See Dockerfile for the complete list of dependencies and versions 
+
+torch==1.13.1
 transformers==4.30.2
-tokenizers==0.13.3
-# torch and allennlp are installed separately in Dockerfile 
+nltk==3.8.1
+python-dotenv==1.0.0
+requests==2.31.0
+boto3>=1.26.0
+beautifulsoup4==4.12.3 

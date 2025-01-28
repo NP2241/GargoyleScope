@@ -7,6 +7,9 @@ version = 0.1
 [default.build.parameters]
 cached = true
 parallel = true
+docker_network = "null"
+container_env_var = []
+docker_volume = ["model-cache:/var/task/model"]
 
 [default.validate.parameters]
 lint = true
@@ -24,6 +27,9 @@ watch = true
 
 [default.local_start_api.parameters]
 warm_containers = "EAGER"
+docker_volume = ["model-cache:/var/task/model"]
+parameter_overrides = "FunctionName=newsAlerter"
+container_name = "newsAlerter"
 
 [default.local_start_lambda.parameters]
 warm_containers = "EAGER"
