@@ -52,3 +52,8 @@ Thumbs.db
 gargoylescope-*.json
 env.json
 env.local.json
+
+# Environment variables and secrets
+.env
+env.json
+env.*.json
