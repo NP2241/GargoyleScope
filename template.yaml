@@ -25,12 +25,19 @@ Resources:
       Architectures: 
         - arm64
       MemorySize: 4096
-      Timeout: 300
+      Timeout: 120
       EphemeralStorage:
         Size: 4096
       Environment:
         Variables:
           NEWS_API_KEY: ${NEWS_API_KEY}
+          NLTK_DATA: /var/task/nltk_data
+          AWS_REGION: ${AWS_REGION}
+          AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID}
+          ECS_CLUSTER_NAME: deepseek-cluster
+          ECS_SUBNET_1: "subnet-dummy-1"  # For local development
+          ECS_SUBNET_2: "subnet-dummy-2"  # For local development
+          ECS_SECURITY_GROUP: "sg-dummy"  # For local development
       Events:
         NewsAlerter:
           Type: Api
@@ -62,15 +69,14 @@ Resources:
           Properties:
             Path: /
             Method: get
-      FileSystemConfigs:
-        - Arn: !GetAtt AccessPoint.Arn
-          LocalMountPath: /mnt/elasticfs
       VpcConfig:
         SecurityGroupIds: 
           - !Ref LambdaSecurityGroup
         SubnetIds: 
           - !Ref Subnet1
           - !Ref Subnet2
+      ImageConfig:
+        Command: ["app.lambda_handler"]
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: .
@@ -90,32 +96,182 @@ Resources:
         Ref: ApplicationResourceGroup
       AutoConfigurationEnabled: 'true'
 
-  ModelFileSystem:
-    Type: AWS::EFS::FileSystem
+  ECSCluster:
+    Type: AWS::ECS::Cluster
     Properties:
-      PerformanceMode: generalPurpose
-      
-  MountTarget1:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref ModelFileSystem
-      SubnetId: !Ref Subnet1
-      SecurityGroups: 
-        - !Ref EFSSecurityGroup
+      ClusterName: deepseek-cluster
+      CapacityProviders: 
+        - FARGATE_SPOT
 
-  AccessPoint:
-    Type: AWS::EFS::AccessPoint
+  InferenceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
     Properties:
-      FileSystemId: !Ref ModelFileSystem
-      PosixUser:
-        Uid: "1000"
-        Gid: "1000"
-      RootDirectory:
-        Path: "/models"
-        CreationInfo:
-          OwnerUid: "1000"
-          OwnerGid: "1000"
-          Permissions: "755"
+      Family: deepseek-inference
+      RequiresCompatibilities: 
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '4096'  # 4 vCPU
+      Memory: '16384'  # 16GB
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+      ContainerDefinitions:
+        - Name: deepseek-container
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/deepseek-inference:latest
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref InferenceLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: deepseek
+
+  InferenceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/deepseek-inference
+      RetentionInDays: 14
+
+  # Add VPC for ECS tasks
+  ECSVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  ECSPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ECSVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  ECSPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ECSVpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for DeepSeek inference
+      VpcId: !Ref ECSVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  NewsAlerterFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ECSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:ListTasks
+                  - ecs:RunTask
+                  - ecs:DescribeTasks
+                Resource: '*'
+
+  # Add Internet Gateway for ECS VPC
+  ECSInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  ECSVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ECSVpc
+      InternetGatewayId: !Ref ECSInternetGateway
+
+  ECSPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ECSVpc
+
+  ECSPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ECSVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ECSPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ECSInternetGateway
+
+  ECSPublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSPublicSubnet1
+      RouteTableId: !Ref ECSPublicRouteTable
+
+  ECSPublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSPublicSubnet2
+      RouteTableId: !Ref ECSPublicRouteTable
+
+  ModelServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: g4dn.xlarge  # GPU-enabled instance
+      ImageId: ami-0c7217cdde317cfec  # Deep Learning AMI with CUDA
+      KeyName: gargoylescope-key  # We'll need to create this
+      SecurityGroups:
+        - !Ref ModelServerSecurityGroup
+      IamInstanceProfile: !Ref ModelServerInstanceProfile
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          cd /home/ubuntu
+          git clone https://github.com/yourusername/GargoyleScope.git
+          cd GargoyleScope
+          docker-compose up -d
+
+  ModelServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow access to model server
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  ModelServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  ModelServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ModelServerRole
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function

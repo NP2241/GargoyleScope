@@ -14,10 +14,15 @@ docker_volume = ["model-cache:/var/task/model"]
 [default.validate.parameters]
 lint = true
 
+[default.deploy]
 [default.deploy.parameters]
-capabilities = "CAPABILITY_IAM"
+stack_name = "news-alerter"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-XXXXXXXXXXXX"
+s3_prefix = "news-alerter"
+region = "us-west-2"
 confirm_changeset = true
-resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
 
 [default.package.parameters]
 resolve_s3 = true

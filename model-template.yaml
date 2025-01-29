@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: Email address for notifications
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value::String
+    Default: '/aws/service/ami-amazon-linux-2/amzn2-ami-hvm-x86_64-gp2'
+    Description: AMI for the instance
+
+Resources:
+  ModelServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: g4dn.xlarge
+      ImageId: !Ref AmiId
+      KeyName: gargoylescope-key
+      SecurityGroups:
+        - !Ref ModelServerSecurityGroup
+      IamInstanceProfile: !Ref ModelServerInstanceProfile
+      InstanceMarketOptions:  # Add spot instance configuration
+        MarketType: spot
+        SpotOptions:
+          MaxPrice: "0.16"  # Maximum price per hour
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          cd /home/ubuntu
+          
+          # Install CloudWatch agent
+          yum install -y amazon-cloudwatch-agent
+          
+          # Set up spot termination checker with logging
+          cat > /usr/local/bin/check-spot-termination.sh << 'EOF'
+          #!/bin/bash
+          log_to_cloudwatch() {
+            aws logs put-log-events \
+              --log-group-name "/gargoylescope/spot-instances" \
+              --log-stream-name "${AWS::StackName}-$(date +%Y-%m-%d)" \
+              --log-events timestamp=$(date +%s000),message="$1"
+          }
+
+          while sleep 5; do
+            if curl -s http://169.254.169.254/latest/meta-data/spot/termination-time | grep -q .*T.*Z; then
+              MESSAGE="Spot instance termination notice received at $(date)"
+              log_to_cloudwatch "$MESSAGE"
+              
+              aws sns publish \
+                --topic-arn ${AlertTopic} \
+                --message "$MESSAGE" \
+                --region ${AWS::Region}
+                
+              # Log shutdown
+              log_to_cloudwatch "Starting graceful shutdown of services"
+              
+              # Gracefully shutdown services
+              cd /home/ubuntu/GargoyleScope/newsAlerter/model_service
+              docker-compose down
+              
+              log_to_cloudwatch "Services stopped successfully"
+              break
+            fi
+          done
+          EOF
+          
+          chmod +x /usr/local/bin/check-spot-termination.sh
+          nohup /usr/local/bin/check-spot-termination.sh &
+
+          # Set up auto-shutdown script
+          echo '#!/bin/bash
+          if [ -z "$(netstat -ant | grep :8080)" ]; then
+              # If no connections to port 8080 in last 45 minutes
+              if [ -z "$(find /var/log/docker -mmin -45)" ]; then
+                  log_to_cloudwatch "No activity for 45 minutes, shutting down"
+                  shutdown -h now
+              fi
+          fi' > /etc/cron.hourly/check-activity
+          chmod +x /etc/cron.hourly/check-activity
+
+          # Create a more frequent cron job for activity check
+          echo '*/5 * * * * root /etc/cron.hourly/check-activity' > /etc/cron.d/check-model-activity
+          chmod 644 /etc/cron.d/check-model-activity
+
+          # Continue with normal startup
+          git clone https://github.com/yourusername/GargoyleScope.git
+          cd GargoyleScope/newsAlerter/model_service
+          
+          docker-compose up -d
+
+  ModelServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow access to model server
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  # SNS Topic for alerts
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: GargoyleScope Alerts
+
+  # SNS Topic subscription (replace with your email)
+  AlertTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: your.actual.email@example.com  # Replace with your email
+
+  # Cost Alert
+  DailyCostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: GargoyleScope-DailyCost
+      AlarmDescription: Alert when daily cost exceeds $1
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 21600  # 6 hours
+      EvaluationPeriods: 1
+      Threshold: 1.0
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      Dimensions:
+        - Name: Currency
+          Value: USD
+
+  # Spot Instance Interruption Rule
+  SpotInterruptionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Capture EC2 Spot Instance Interruption Warnings"
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - "EC2 Spot Instance Interruption Warning"
+        detail:
+          instance-id:
+            - !Ref ModelServer
+      State: ENABLED
+      Targets:
+        - Arn: !Ref AlertTopic
+          Id: "SpotInterruptionNotification"
+
+  # Add CloudWatch Log Group
+  SpotInstanceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /gargoylescope/spot-instances
+      RetentionInDays: 30
+
+  # Update ModelServerRole with CloudWatch permissions
+  ModelServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SpotInstanceTerminationNotice
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Ref AlertTopic
+                  - !GetAtt SpotInstanceLogGroup.Arn
+
+  # Add the instance profile
+  ModelServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref ModelServerRole
+
+  # ... rest of the template ... 
