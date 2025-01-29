@@ -29,20 +29,25 @@ def analyze_entity(text: str, entity: str, advanced_response: bool = True):
         if advanced_response:
             prompt = f"""Analyze this article about {entity}. Return a JSON object with:
 1. All sentences mentioning {entity} (directly or indirectly) and their sentiment (positive/negative)
-2. A concise 2-3 sentence summary about {entity}'s role in the article
+2. The overall sentiment towards {entity} (must be exactly "positive", "neutral", or "negative")
+3. A concise 2-3 sentence summary about {entity}'s role in the article
 
 Return in this exact format:
 {{
     "sentences": [
         {{"text": "exact sentence here", "sentiment": "positive or negative"}}
     ],
+    "sentiment": "positive/neutral/negative",
     "summary": "2-3 sentence summary here"
 }}"""
         else:
-            prompt = f"""Analyze this article about {entity}. Return a JSON object with just a concise 2-3 sentence summary.
+            prompt = f"""Analyze this article about {entity}. Return a JSON object with:
+1. The overall sentiment towards {entity} (must be exactly "positive", "neutral", or "negative")
+2. A concise 2-3 sentence summary about {entity}'s role in the article
 
 Return in this exact format:
 {{
+    "sentiment": "positive/neutral/negative",
     "summary": "2-3 sentence summary here"
 }}"""
         
@@ -109,6 +114,7 @@ Return in this exact format:
         return {
             'highlighted_text': highlighted_text,
             'relevant_sentences': relevant_sentences_html,
+            'sentiment': analysis['sentiment'],
             'summary': analysis['summary']
         }
         
@@ -117,6 +123,7 @@ Return in this exact format:
         return {
             'highlighted_text': f"Error analyzing article: {str(e)}",
             'relevant_sentences': "Error analyzing sentences",
+            'sentiment': "Analysis failed",
             'summary': "Analysis failed"
         }
 
@@ -145,6 +152,7 @@ def lambda_handler(event, context):
             # Replace template placeholders
             html = template.replace('{{article_content}}', analysis['highlighted_text'])
             html = html.replace('{{relevant_sentences}}', analysis['relevant_sentences'])
+            html = html.replace('{{sentiment}}', analysis['sentiment'])
             html = html.replace('{{summary}}', analysis['summary'])
             
             return {
