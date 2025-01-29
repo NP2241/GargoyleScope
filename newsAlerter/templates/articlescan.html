@@ -3,205 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Article Scan</title>
+    <title>Article Analysis</title>
     <style type="text/css">
-        /* Base styles */
         body {
             background-color: #1a1d21;
             color: #ffffff;
             font-family: Arial, sans-serif;
+            line-height: 1.6;
         }
         .container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
-        .article-container {
-            margin: 20px;
-            padding: 20px;
+        .summary-box {
             background: #2f3337;
+            padding: 20px;
             border-radius: 8px;
-            color: #ffffff;
-            line-height: 1.6;
+            margin-bottom: 30px;
         }
-        .article-text {
+        .article-content {
+            background: #2f3337;
+            padding: 20px;
+            border-radius: 8px;
             white-space: pre-wrap;
-            font-family: Arial, sans-serif;
         }
         .positive {
-            background-color: rgba(40, 167, 69, 0.2);  /* Green with transparency */
+            background-color: rgba(40, 167, 69, 0.2);
             padding: 2px 0;
-            position: relative;
-            cursor: help;
         }
         .negative {
-            background-color: rgba(220, 53, 69, 0.2);  /* Red with transparency */
+            background-color: rgba(220, 53, 69, 0.2);
             padding: 2px 0;
-            position: relative;
-            cursor: help;
-        }
-        .tooltip {
-            visibility: hidden;
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #333;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 14px;
-            white-space: nowrap;
-            z-index: 1;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        .positive:hover .tooltip,
-        .negative:hover .tooltip {
-            visibility: visible;
-            opacity: 1;
-        }
-
-        /* New styles for the toggle */
-        .toggle-container {
-            margin: 20px 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 60px;
-            height: 34px;
-        }
-
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 26px;
-            width: 26px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-
-        input:checked + .slider {
-            background-color: #2196F3;
-        }
-
-        input:checked + .slider:before {
-            transform: translateX(26px);
-        }
-
-        /* Style for the numbered list */
-        .relevant-sentences {
-            display: none;
-            list-style-type: decimal;
-            padding-left: 20px;
-        }
-
-        .relevant-sentences li {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 4px;
-            background: #3f444a;
-        }
-
-        .reference {
-            text-decoration: underline;
-            text-decoration-style: dotted;
-            text-decoration-color: #2196F3;
-            cursor: help;
-        }
-        
-        /* Optional: Add hover effect */
-        .reference:hover {
-            background-color: rgba(33, 150, 243, 0.1);
         }
     </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Create tooltips
-            const sentimentSpans = document.querySelectorAll('.positive, .negative');
-            sentimentSpans.forEach(span => {
-                const score = span.getAttribute('data-sentiment');
-                const tooltip = document.createElement('div');
-                tooltip.className = 'tooltip';
-                tooltip.textContent = `Sentiment Score: ${score}`;
-                span.appendChild(tooltip);
-            });
-
-            // Handle toggle functionality
-            const toggle = document.getElementById('relevantToggle');
-            const fullArticle = document.querySelector('.article-text');
-            const relevantList = document.querySelector('.relevant-sentences');
-
-            // Extract relevant sentences and create list items
-            const relevantSpans = document.querySelectorAll('.positive, .negative');
-            relevantSpans.forEach((span, index) => {
-                const li = document.createElement('li');
-                li.innerHTML = span.outerHTML;
-                relevantList.appendChild(li);
-            });
-
-            // Toggle visibility
-            toggle.addEventListener('change', function() {
-                if (this.checked) {
-                    fullArticle.style.display = 'none';
-                    relevantList.style.display = 'block';
-                } else {
-                    fullArticle.style.display = 'block';
-                    relevantList.style.display = 'none';
-                }
-            });
-        });
-    </script>
 </head>
 <body>
     <div class="container">
-        <h1>Article Scan</h1>
-        
-        <!-- Add toggle switch -->
-        <div class="toggle-container">
-            <label class="switch">
-                <input type="checkbox" id="relevantToggle">
-                <span class="slider"></span>
-            </label>
-            <span>Relevant Sentences Only</span>
+        <div class="summary-box">
+            <h2>Summary</h2>
+            <p>{{summary}}</p>
         </div>
 
-        <div class="article-container">
-            <!-- Full article view -->
-            <div class="article-text">
-                {{article_content}}
-            </div>
-            
-            <!-- Relevant sentences list view -->
-            <ol class="relevant-sentences">
-                <!-- Will be populated by JavaScript -->
-            </ol>
+        <div class="article-content">
+            {{article_content}}
         </div>
     </div>
 </body>

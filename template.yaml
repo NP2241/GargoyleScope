@@ -38,6 +38,7 @@ Resources:
           ECS_SUBNET_1: "subnet-dummy-1"  # For local development
           ECS_SUBNET_2: "subnet-dummy-2"  # For local development
           ECS_SECURITY_GROUP: "sg-dummy"  # For local development
+          OPENAI_API_KEY: ${OPENAI_API_KEY}  # Use environment variable directly
       Events:
         NewsAlerter:
           Type: Api

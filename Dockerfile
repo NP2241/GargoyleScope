@@ -22,7 +22,11 @@ RUN pip3 install --no-cache-dir \
     python-dotenv==1.0.0 \
     requests==2.31.0 \
     boto3>=1.26.0 \
-    beautifulsoup4==4.12.3
+    beautifulsoup4==4.12.3 \
+    openai==1.12.0
+
+# After installing dependencies, print versions
+RUN pip freeze | grep openai
 
 # Download NLTK data
 RUN python3.9 -c "import nltk; nltk.download('punkt', download_dir='${LAMBDA_TASK_ROOT}/nltk_data')"
