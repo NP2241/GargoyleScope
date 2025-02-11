@@ -47,6 +47,11 @@ def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", adva
             4. important: boolean, true if article mentions lawsuits OR mentions {parent_entity}
             """
 
+        # Debug print
+        print(f"\nAnalyzing text for {entity}:")
+        print(f"Parent entity: {parent_entity}")
+        print(f"Text snippet: {text[:200]}...")  # First 200 chars
+        
         # Get response from OpenAI
         response = openai.ChatCompletion.create(
             model=model,  # Use the model from environment
@@ -70,6 +75,13 @@ def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", adva
             
             # Parse JSON
             analysis = json.loads(content)
+            
+            # After parsing response
+            if 'important' in analysis:
+                print(f"Important: {analysis['important']}")
+                if analysis['important']:
+                    print("Reason: Article mentions lawsuit or parent entity")
+            
             return analysis
         except json.JSONDecodeError as e:
             print(f"JSON Parse Error: {str(e)}")
@@ -123,18 +135,29 @@ def analyze_search_results(entity: str, search_results: dict):
 def send_email_report(html_content: str, subject: str = "News Alert", recipient: str = "neilpendyala@gmail.com"):
     """Send HTML report via SES"""
     try:
+        # Check content size
+        content_size_kb = len(html_content.encode('utf-8')) / 1024
+        if content_size_kb > 100:
+            print(f"⚠️ Warning: Email content is {content_size_kb:.1f}KB (recommended max is 100KB)")
+            if content_size_kb > 9500:  # Leave some room for headers
+                raise Exception(f"Email content too large: {content_size_kb:.1f}KB (max 10MB)")
+        
         # Create SES client
         ses = boto3.client('ses', region_name=os.getenv('REGION', 'us-west-1'))
         
         # Create message container
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From'] = "reports@gargoylescope.com"  # Verified domain email
+        msg['From'] = "reports@gargoylescope.com"
         msg['To'] = recipient
         
         # Add HTML content
         html_part = MIMEText(html_content, 'html')
         msg.attach(html_part)
+        
+        # Check final message size
+        message_size_kb = len(msg.as_string().encode('utf-8')) / 1024
+        print(f"📧 Final email size: {message_size_kb:.1f}KB")
         
         # Send email
         response = ses.send_raw_email(
@@ -143,11 +166,11 @@ def send_email_report(html_content: str, subject: str = "News Alert", recipient:
             RawMessage={'Data': msg.as_string()}
         )
         
-        print(f"Email sent! Message ID: {response['MessageId']}")
+        print(f"✅ Email sent! Message ID: {response['MessageId']}")
         return True
         
     except Exception as e:
-        print(f"Error sending email: {str(e)}")
+        print(f"❌ Error sending email: {str(e)}")
         return False
 
 def generate_html_report(all_entity_articles, entities: list) -> str:
@@ -156,16 +179,42 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
     
-    # Build HTML for all entities
-    all_analyses_html = ""
+    # Sort entities by importance
+    sorted_entities = sorted(
+        all_entity_articles.items(),
+        key=lambda x: sum(1 for _, analysis in x[1] if analysis.get('important', False)),
+        reverse=True
+    )
     
-    for entity, analyzed_articles in all_entity_articles.items():
-        # Add entity header
+    # Calculate total important articles
+    total_important = sum(
+        sum(1 for _, analysis in articles if analysis.get('important', False))
+        for _, articles in sorted_entities
+    )
+    
+    # Build HTML for all entities
+    all_analyses_html = f"""
+    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #2c3e50; border-radius: 4px; margin-bottom: 30px;">
+        <tr>
+            <td style="font-family: Arial, sans-serif; color: #ffffff; padding: 15px;">
+                <h2 style="margin: 0; font-size: 20px;">Found {total_important} important articles across {len(entities)} entities</h2>
+            </td>
+        </tr>
+    </table>
+    """
+    
+    for entity, analyzed_articles in sorted_entities:
+        important_count = sum(1 for _, analysis in analyzed_articles if analysis.get('important', False))
+        total_count = len(analyzed_articles)
+        
+        # Add entity header with importance indicator
+        header_style = "background-color: #ff6b6b;" if important_count > 0 else "background-color: #2c3e50;"
         all_analyses_html += f"""
-        <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 30px; background-color: #2c3e50; border-radius: 4px;">
+        <table width="100%" cellpadding="10" cellspacing="0" style="{header_style} border-radius: 4px; margin: 30px 0 15px 0;">
             <tr>
                 <td style="font-family: Arial, sans-serif; color: #ffffff; padding: 15px;">
-                    <h2 style="margin: 0; font-size: 20px;">Articles about {entity}</h2>
+                    <h2 style="margin: 0; font-size: 20px; display: inline-block;">Articles about {entity}</h2>
+                    <span style="float: right; font-weight: bold;">{important_count} important out of {total_count} articles</span>
                 </td>
             </tr>
         </table>
@@ -173,12 +222,20 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
         
         # Add articles for this entity
         for idx, (article, analysis) in enumerate(analyzed_articles, 1):
-            importance_style = "border-left: 4px solid #ff6b6b;" if analysis.get('important', False) else ""
+            is_important = analysis.get('important', False)
+            importance_style = """
+                border-left: 4px solid #ff6b6b;
+                background-color: #fff5f5;
+            """ if is_important else ""
+            
             article_html = f"""
             <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); {importance_style}">
                 <tr>
                     <td style="font-family: Arial, sans-serif; padding: 15px;">
-                        <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">#{idx}: {article['title']}</h3>
+                        <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">
+                            #{idx}: {article['title']}
+                            {' <span style="color: #ff6b6b; font-size: 14px;">(Important)</span>' if is_important else ''}
+                        </h3>
                         <table width="100%" cellpadding="5" cellspacing="0">
                             <tr>
                                 <td style="font-family: Arial, sans-serif;">
@@ -194,21 +251,14 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
                             </tr>
                             <tr>
                                 <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">Important:</strong> 
-                                    <span style="color: #2c3e50;">{"Yes" if analysis.get('important', False) else "No"}</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">Summary:</strong><br>
+                                    <strong style="color: #7f8c8d;">AI Summary:</strong><br>
                                     <span style="color: #2c3e50; line-height: 1.4;">{analysis['summary']}</span>
                                 </td>
                             </tr>
                             <tr>
-                                <td style="font-family: Arial, sans-serif; padding-top: 10px;">
-                                    <div style="color: #34495e; line-height: 1.4;">
-                                        {analysis['highlighted_text']}
-                                    </div>
+                                <td style="font-family: Arial, sans-serif;">
+                                    <strong style="color: #7f8c8d;">Article Snippet:</strong><br>
+                                    <span style="color: #2c3e50; line-height: 1.4;">{article.get('snippet', 'No snippet available')}</span>
                                 </td>
                             </tr>
                         </table>
@@ -294,7 +344,7 @@ def lambda_handler(event, context):
                 entities = [
                     'Rangoon Ruby',
                     'Nordstrom',
-                    'Louis Vuitton'
+                    'Vance Brown Construction'
                 ]
                 parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
                 

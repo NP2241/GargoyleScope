@@ -4,100 +4,42 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 
-def search_news_articles(entity: str):
-    """Search for news articles using Google Custom Search API (paid tier)"""
+def search_news_articles(query: str) -> dict:
+    """Search for news articles using Google Custom Search API"""
     try:
-        # Get credentials from Lambda environment
-        api_key = os.environ.get('GOOGLE_API_KEY')
-        cse_id = os.environ.get('GOOGLE_CSE_ID')
-
-        # Debug: Print environment variables
-        print("\nEnvironment Variables from Lambda:")
-        print("-" * 50)
-        print(f"API Key loaded: {'Yes' if api_key else 'No'}")
-        print(f"API Key preview: {api_key[:10]}... (truncated)" if api_key else "No API Key found")
-        print(f"CSE ID loaded: {'Yes' if cse_id else 'No'}")
-        print(f"CSE ID: {cse_id}" if cse_id else "No CSE ID found")
-
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables")
-        if not cse_id:
-            raise ValueError("GOOGLE_CSE_ID not found in environment variables")
-
-        # Initialize the Custom Search API service
+        # Create service
         service = build(
             "customsearch", "v1",
-            developerKey=api_key
+            developerKey=os.getenv('GOOGLE_API_KEY')
         )
 
-        # Calculate dates for 48-hour window
-        now = datetime.utcnow()
-        two_days_ago = now - timedelta(days=2)
-        date_restrict = f"d2"  # Last 2 days
+        # Execute search
+        result = service.cse().list(
+            q=query,
+            cx=os.getenv('GOOGLE_CSE_ID'),
+            num=10,  # Explicitly request max 10 results
+            sort='date:d',  # Sort by date descending
+            dateRestrict='m1'  # Restrict to last month
+        ).execute()
 
-        all_articles = []
-        start_index = 1
-        
-        while True:
-            # Calculate cost for each query
-            cost_per_query = 0.005  # $0.005 per query
-            print(f"\nCost Analysis for query {start_index}:")
-            print("-" * 50)
-            print(f"Cost per query: ${cost_per_query}")
-
-            # Perform the search
-            result = service.cse().list(
-                q=f'"{entity}"',  # Exact phrase match with quotes
-                exactTerms=entity,  # Must contain exact terms
-                cx=cse_id,  # Custom Search Engine ID
-                dateRestrict=date_restrict,  # Last 48 hours
-                start=start_index,  # Starting position
-                sort="date",  # Sort by date
-                fields="items(title,link,snippet,pagemap/metatags/article:published_time),searchInformation(totalResults)"  # Added total results
-            ).execute()
-            
-            # Get total results count
-            total_results = int(result['searchInformation']['totalResults'])
-            print(f"Total results found: {total_results}")
-            
-            # Process results
-            if 'items' in result:
-                for item in result['items']:
-                    article = {
-                        'title': item.get('title', ''),
-                        'url': item.get('link', ''),
-                        'snippet': item.get('snippet', ''),
-                        'published_date': None
-                    }
-                    
-                    if 'pagemap' in item and 'metatags' in item['pagemap']:
-                        metatags = item['pagemap']['metatags'][0]
-                        article['published_date'] = metatags.get('article:published_time', '')
-
-                    all_articles.append(article)
-                
-                # Check if we need to get more results
-                if len(all_articles) < total_results and start_index < 100:  # Google's limit is 100 results
-                    start_index += 10  # Google returns 10 results per page
-                else:
-                    break
-            else:
-                break
+        # Extract articles, ensuring no more than 10
+        articles = []
+        if 'items' in result:
+            for item in result['items'][:10]:  # Limit to first 10 even if more are returned
+                articles.append({
+                    'title': item['title'],
+                    'url': item['link'],
+                    'snippet': item.get('snippet', '')
+                })
 
         return {
-            'status': 'success',
-            'count': len(all_articles),
-            'total_results': total_results,
-            'articles': all_articles
+            'articles': articles,
+            'total_results': min(len(articles), 10)  # Cap total results at 10
         }
 
     except Exception as e:
-        print(f"Error searching articles: {str(e)}")
-        return {
-            'status': 'error',
-            'message': str(e),
-            'articles': []
-        }
+        print(f"Error in search_news_articles: {str(e)}")
+        return {'articles': [], 'total_results': 0}
 
 def main():
     """Test function"""
