@@ -57,3 +57,4 @@ env.local.json
 .env
 env.json
 env.*.json
+deploy.sh

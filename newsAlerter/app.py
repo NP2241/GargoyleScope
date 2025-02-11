@@ -120,7 +120,7 @@ def analyze_search_results(entity: str, search_results: dict):
         print(f"URL: {article['url']}")
         print()
 
-def send_email_report(html_content: str, subject: str = "Daily News Alert", recipient: str = "neilpendyala@gmail.com"):
+def send_email_report(html_content: str, subject: str = "News Alert", recipient: str = "neilpendyala@gmail.com"):
     """Send HTML report via SES"""
     try:
         # Create SES client
@@ -150,35 +150,79 @@ def send_email_report(html_content: str, subject: str = "Daily News Alert", reci
         print(f"Error sending email: {str(e)}")
         return False
 
-def generate_html_report(analyzed_articles, entity: str) -> str:
-    """Generate HTML report from analyzed articles"""
+def generate_html_report(all_entity_articles, entities: list) -> str:
+    """Generate HTML report from analyzed articles for multiple entities"""
     # Read template
     base_dir = os.path.dirname(os.path.abspath(__file__))
     template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
     
-    # Build HTML for articles
+    # Build HTML for all entities
     all_analyses_html = ""
-    for article, analysis in analyzed_articles:
-        importance_class = "important" if analysis.get('important', False) else ""
-        article_html = f"""
-        <div class="article-box {importance_class}">
-            <h3>Article: {article['title']}</h3>
-            <p><strong>URL:</strong> <a href="{article['url']}" target="_blank">{article['url']}</a></p>
-            <p><strong>Sentiment:</strong> {analysis['sentiment']}</p>
-            <p><strong>Important:</strong> {"Yes" if analysis.get('important', False) else "No"}</p>
-            <p><strong>Summary:</strong> {analysis['summary']}</p>
-            <div class="article-content">
-                {analysis['highlighted_text']}
-            </div>
-        </div>
+    
+    for entity, analyzed_articles in all_entity_articles.items():
+        # Add entity header
+        all_analyses_html += f"""
+        <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 30px; background-color: #2c3e50; border-radius: 4px;">
+            <tr>
+                <td style="font-family: Arial, sans-serif; color: #ffffff; padding: 15px;">
+                    <h2 style="margin: 0; font-size: 20px;">Articles about {entity}</h2>
+                </td>
+            </tr>
+        </table>
         """
-        all_analyses_html += article_html
+        
+        # Add articles for this entity
+        for idx, (article, analysis) in enumerate(analyzed_articles, 1):
+            importance_style = "border-left: 4px solid #ff6b6b;" if analysis.get('important', False) else ""
+            article_html = f"""
+            <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); {importance_style}">
+                <tr>
+                    <td style="font-family: Arial, sans-serif; padding: 15px;">
+                        <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">#{idx}: {article['title']}</h3>
+                        <table width="100%" cellpadding="5" cellspacing="0">
+                            <tr>
+                                <td style="font-family: Arial, sans-serif;">
+                                    <strong style="color: #7f8c8d;">URL:</strong> 
+                                    <a href="{article['url']}" style="color: #3498db; text-decoration: none;" target="_blank">{article['url']}</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="font-family: Arial, sans-serif;">
+                                    <strong style="color: #7f8c8d;">Sentiment:</strong> 
+                                    <span style="color: #2c3e50;">{analysis['sentiment']}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="font-family: Arial, sans-serif;">
+                                    <strong style="color: #7f8c8d;">Important:</strong> 
+                                    <span style="color: #2c3e50;">{"Yes" if analysis.get('important', False) else "No"}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="font-family: Arial, sans-serif;">
+                                    <strong style="color: #7f8c8d;">Summary:</strong><br>
+                                    <span style="color: #2c3e50; line-height: 1.4;">{analysis['summary']}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="font-family: Arial, sans-serif; padding-top: 10px;">
+                                    <div style="color: #34495e; line-height: 1.4;">
+                                        {analysis['highlighted_text']}
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+            """
+            all_analyses_html += article_html
     
     # Replace template placeholders
     html = template.replace('{{article_content}}', all_analyses_html)
     html = html.replace('{{relevant_sentences}}', '')
-    html = html.replace('{{sentiment}}', 'Daily News Alert')
-    html = html.replace('{{summary}}', f'Analysis of recent articles about {entity}')
+    html = html.replace('{{sentiment}}', 'News Alert')
+    html = html.replace('{{summary}}', f'Analysis of recent articles about {", ".join(entities)}')
     
     return html
 
@@ -247,14 +291,27 @@ def lambda_handler(event, context):
             
             try:
                 # Get entities from environment
-                entity = os.getenv('SEARCH_ENTITY', 'Rangoon Ruby')
+                entities = [
+                    'Rangoon Ruby',
+                    'Nordstrom',
+                    'Louis Vuitton'
+                ]
                 parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
                 
-                # Run the analysis
-                from checkArticles import search_news_articles
-                search_results = search_news_articles(entity)
-                analyzed_articles = analyze_and_format_articles(search_results, entity, parent_entity)
-                html_report = generate_html_report(analyzed_articles, entity)
+                # Store results for all entities
+                all_entity_articles = {}
+                
+                # Run analysis for each entity
+                for entity in entities:
+                    print(f"\nAnalyzing articles for: {entity}")
+                    # Run the analysis
+                    from checkArticles import search_news_articles
+                    search_results = search_news_articles(entity)
+                    analyzed_articles = analyze_and_format_articles(search_results, entity, parent_entity)
+                    all_entity_articles[entity] = analyzed_articles
+                
+                # Generate combined report
+                html_report = generate_html_report(all_entity_articles, entities)
                 
                 # Send email
                 if send_email_report(html_report):

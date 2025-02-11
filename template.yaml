@@ -37,7 +37,7 @@ Resources:
           GOOGLE_API_KEY: !Ref GoogleApiKey
           GOOGLE_CSE_ID: !Ref GoogleCseId
       Code:
-        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:python3.9-v2
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:python3.9-v4
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
