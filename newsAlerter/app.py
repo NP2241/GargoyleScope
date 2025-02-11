@@ -28,74 +28,72 @@ def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", adva
     try:
         # Set API key and model
         openai.api_key = os.getenv('OPENAI_API_KEY')
-        model = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-08-06')  # Use environment variable or default
+        model = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-08-06')
         
         # Create prompt based on response type
         if advanced_response:
-            prompt = f"""Analyze this article about {entity}. Return a JSON object with:
-            1. sentiment: overall sentiment (positive/negative/neutral)
-            2. summary: 2-3 sentence summary
-            3. relevant_sentences: array of relevant quotes
-            4. highlighted_text: HTML version with <span class="positive"> or <span class="negative"> tags
-            5. important: boolean, true if article mentions lawsuits OR mentions {parent_entity}
+            prompt = f"""First determine if this article is actually about {entity}. Then analyze and return a JSON object with:
+            1. is_relevant: boolean, true if article is specifically about {entity} (not just mentions the words)
+            2. sentiment: overall sentiment (positive/negative/neutral)
+            3. summary: 2-3 sentence summary
+            4. relevant_sentences: array of relevant quotes
+            5. highlighted_text: HTML version with <span class="positive"> or <span class="negative"> tags
+            6. important: boolean, true ONLY if (article is relevant AND (mentions lawsuits OR mentions {parent_entity}))
+
+            Example of irrelevant: If {entity} is "Vance Brown Construction" but article just happens to mention someone named "Vance" and "Brown" separately, mark is_relevant as false.
             """
         else:
-            prompt = f"""Analyze this article. Return a JSON object with:
-            1. sentiment: overall sentiment (positive/negative/neutral)
-            2. summary: 2-3 sentence summary
-            3. highlighted_text: original text with positive/negative phrases in HTML spans
-            4. important: boolean, true if article mentions lawsuits OR mentions {parent_entity}
+            prompt = f"""First determine if this article is actually about {entity}. Then analyze and return a JSON object with:
+            1. is_relevant: boolean, true if article is specifically about {entity} (not just mentions the words)
+            2. sentiment: overall sentiment (positive/negative/neutral)
+            3. summary: 2-3 sentence summary
+            4. highlighted_text: original text with positive/negative phrases in HTML spans
+            5. important: boolean, true ONLY if (article is relevant AND (mentions lawsuits OR mentions {parent_entity}))
+
+            Example of irrelevant: If {entity} is "Vance Brown Construction" but article just happens to mention someone named "Vance" and "Brown" separately, mark is_relevant as false.
             """
 
         # Debug print
         print(f"\nAnalyzing text for {entity}:")
         print(f"Parent entity: {parent_entity}")
-        print(f"Text snippet: {text[:200]}...")  # First 200 chars
-        
+        print(f"Text snippet: {text[:200]}...")
+
         # Get response from OpenAI
         response = openai.ChatCompletion.create(
-            model=model,  # Use the model from environment
+            model=model,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that analyzes articles and returns JSON."},
                 {"role": "user", "content": f"Article text: {text}\n\nPrompt: {prompt}"}
             ]
         )
 
-        # Debug print
-        print(f"OpenAI Response: {response.choices[0].message.content}")
-
         # Parse JSON response
         try:
-            # Clean the response - remove markdown code block markers
-            content = response.choices[0].message.content
-            content = content.replace('```json', '').replace('```', '').strip()
-            
-            # Debug print
-            print(f"Cleaned Response: {content}")
-            
-            # Parse JSON
+            content = response.choices[0].message.content.replace('```json', '').replace('```', '').strip()
             analysis = json.loads(content)
             
-            # After parsing response
-            if 'important' in analysis:
+            # Debug prints
+            print(f"Relevant: {analysis.get('is_relevant', False)}")
+            if analysis.get('important', False):
                 print(f"Important: {analysis['important']}")
-                if analysis['important']:
-                    print("Reason: Article mentions lawsuit or parent entity")
+                print("Reason: Article is relevant AND (mentions lawsuit or parent entity)")
             
             return analysis
+            
         except json.JSONDecodeError as e:
             print(f"JSON Parse Error: {str(e)}")
-            print(f"Raw Response: {response.choices[0].message.content}")
             return {
+                'is_relevant': False,
                 'highlighted_text': "Error parsing response",
                 'sentiment': "Analysis failed",
                 'summary': "Analysis failed",
                 'important': False
             }
-        
+            
     except Exception as e:
         print(f"Error in analyze_entity: {str(e)}")
         return {
+            'is_relevant': False,
             'highlighted_text': f"Error analyzing article: {str(e)}",
             'sentiment': "Analysis failed",
             'summary': "Analysis failed",
@@ -194,10 +192,10 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     
     # Build HTML for all entities
     all_analyses_html = f"""
-    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #2c3e50; border-radius: 4px; margin-bottom: 30px;">
+    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #2c3e50 !important; border-radius: 4px; margin-bottom: 30px;">
         <tr>
-            <td style="font-family: Arial, sans-serif; color: #ffffff; padding: 15px;">
-                <h2 style="margin: 0; font-size: 20px;">Found {total_important} important articles across {len(entities)} entities</h2>
+            <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
+                <h2 style="margin: 0; font-size: 20px; color: #ffffff !important;">Found {total_important} important articles across {len(entities)} entities</h2>
             </td>
         </tr>
     </table>
@@ -207,14 +205,14 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
         important_count = sum(1 for _, analysis in analyzed_articles if analysis.get('important', False))
         total_count = len(analyzed_articles)
         
-        # Add entity header with importance indicator
-        header_style = "background-color: #ff6b6b;" if important_count > 0 else "background-color: #2c3e50;"
+        # Add entity header with importance indicator - force colors with !important
+        header_style = "background-color: #e74c3c !important;" if important_count > 0 else "background-color: #2c3e50 !important;"
         all_analyses_html += f"""
         <table width="100%" cellpadding="10" cellspacing="0" style="{header_style} border-radius: 4px; margin: 30px 0 15px 0;">
             <tr>
-                <td style="font-family: Arial, sans-serif; color: #ffffff; padding: 15px;">
-                    <h2 style="margin: 0; font-size: 20px; display: inline-block;">Articles about {entity}</h2>
-                    <span style="float: right; font-weight: bold;">{important_count} important out of {total_count} articles</span>
+                <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
+                    <h2 style="margin: 0; font-size: 20px; display: inline-block; color: #ffffff !important;">Articles about {entity}</h2>
+                    <span style="float: right; font-weight: bold; color: #ffffff !important;">{important_count} important out of {total_count} articles</span>
                 </td>
             </tr>
         </table>
