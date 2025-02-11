@@ -23,7 +23,8 @@ RUN pip3 install --no-cache-dir \
     requests==2.31.0 \
     boto3>=1.26.0 \
     beautifulsoup4==4.12.3 \
-    openai==0.28.0
+    openai==0.28.0 \
+    google-api-python-client
 
 # Print installed version for verification
 RUN pip freeze | grep openai

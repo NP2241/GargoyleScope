@@ -1,177 +1,48 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: AWS::Serverless-2016-10-31
-Description: >
-  GargoyleScope
+Description: GargoyleScope News Alerter
 
-  Sample SAM Template for GargoyleScope
+Parameters:
+  OpenAiApiKey:
+    Type: String
+    Description: API Key for OpenAI
+  GoogleApiKey:
+    Type: String
+    Description: API Key for Google
+  GoogleCseId:
+    Type: String
+    Description: Google Custom Search Engine ID
+  AwsRegion:
+    Type: String
+    Default: us-west-1
+  AwsAccountId:
+    Type: String
+    Description: AWS Account ID
 
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
-Globals:
-  Function:
-    Timeout: 30
-    MemorySize: 1024
-    Tracing: Active
-    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
-    LoggingConfig:
-      LogFormat: JSON
-  Api:
-    TracingEnabled: true
 Resources:
   NewsAlerterFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Type: AWS::Lambda::Function
     Properties:
       FunctionName: newsAlerter
       PackageType: Image
+      Role: !GetAtt LambdaExecutionRole.Arn
       Architectures: 
         - arm64
       MemorySize: 2048
       Timeout: 120
-      EphemeralStorage:
-        Size: 2048
       Environment:
         Variables:
-          NEWS_API_KEY: ${NEWS_API_KEY}
           NLTK_DATA: /var/task/nltk_data
-          AWS_REGION: ${AWS_REGION}
-          AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID}
-          ECS_CLUSTER_NAME: deepseek-cluster
-          ECS_SUBNET_1: "subnet-dummy-1"  # For local development
-          ECS_SUBNET_2: "subnet-dummy-2"  # For local development
-          ECS_SECURITY_GROUP: "sg-dummy"  # For local development
-          OPENAI_API_KEY: ${OPENAI_API_KEY}  # Will pull from your environment
-      Events:
-        NewsAlerter:
-          Type: Api
-          Properties:
-            Path: /
-            Method: get
-        ResultsPage:
-          Type: Api
-          Properties:
-            Path: /results
-            Method: get
-        SearchEndpoint:
-          Type: Api
-          Properties:
-            Path: /search
-            Method: post
-        Breakdown:
-          Type: Api
-          Properties:
-            Path: /breakdown.html
-            Method: get
-        ArticleScan:
-          Type: Api
-          Properties:
-            Path: /articlescan.html
-            Method: get
-        Root:
-          Type: Api
-          Properties:
-            Path: /
-            Method: get
-      VpcConfig:
-        SecurityGroupIds: 
-          - !Ref LambdaSecurityGroup
-        SubnetIds: 
-          - !Ref Subnet1
-          - !Ref Subnet2
-      ImageConfig:
-        Command: ["app.lambda_handler"]
-    Metadata:
-      Dockerfile: Dockerfile
-      DockerContext: .
-      DockerTag: python3.9-v1
+          REGION: !Ref AwsRegion
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          GOOGLE_API_KEY: !Ref GoogleApiKey
+          GOOGLE_CSE_ID: !Ref GoogleCseId
+      Code:
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:python3.9-v1
 
-  ApplicationResourceGroup:
-    Type: AWS::ResourceGroups::Group
-    Properties:
-      Name:
-        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
-      ResourceQuery:
-        Type: CLOUDFORMATION_STACK_1_0
-  ApplicationInsightsMonitoring:
-    Type: AWS::ApplicationInsights::Application
-    Properties:
-      ResourceGroupName:
-        Ref: ApplicationResourceGroup
-      AutoConfigurationEnabled: 'true'
-
-  ECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: deepseek-cluster
-      CapacityProviders: 
-        - FARGATE_SPOT
-
-  InferenceTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: deepseek-inference
-      RequiresCompatibilities: 
-        - FARGATE
-      NetworkMode: awsvpc
-      Cpu: '4096'  # 4 vCPU
-      Memory: '16384'  # 16GB
-      RuntimePlatform:
-        CpuArchitecture: X86_64
-      ContainerDefinitions:
-        - Name: deepseek-container
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/deepseek-inference:latest
-          Essential: true
-          PortMappings:
-            - ContainerPort: 8080
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref InferenceLogGroup
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: deepseek
-
-  InferenceLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /ecs/deepseek-inference
-      RetentionInDays: 14
-
-  # Add VPC for ECS tasks
-  ECSVpc:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsHostnames: true
-      EnableDnsSupport: true
-
-  ECSPublicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ECSVpc
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [0, !GetAZs '']
-      MapPublicIpOnLaunch: true
-
-  ECSPublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ECSVpc
-      CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs '']
-      MapPublicIpOnLaunch: true
-
-  ECSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for DeepSeek inference
-      VpcId: !Ref ECSVpc
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          SourceSecurityGroupId: !Ref LambdaSecurityGroup
-
-  NewsAlerterFunctionRole:
+  LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: GargoyleScopeNewsAlerterRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -182,105 +53,37 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: ECSAccess
+        - PolicyName: NewsAlerterPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - ecs:ListTasks
-                  - ecs:RunTask
-                  - ecs:DescribeTasks
+                  - ses:SendEmail
+                  - ses:SendRawEmail
                 Resource: '*'
 
-  # Add Internet Gateway for ECS VPC
-  ECSInternetGateway:
-    Type: AWS::EC2::InternetGateway
-
-  ECSVPCGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
+  DailyNewsAlert:
+    Type: AWS::Events::Rule
     Properties:
-      VpcId: !Ref ECSVpc
-      InternetGatewayId: !Ref ECSInternetGateway
+      Name: DailyNewsAlertTrigger
+      Description: "Triggers news alert Lambda at 12pm PT daily"
+      ScheduleExpression: "cron(0 20 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt NewsAlerterFunction.Arn
+          Id: "DailyNewsAlertTarget"
+          Input: '{"source": "aws.events"}'
 
-  ECSPublicRouteTable:
-    Type: AWS::EC2::RouteTable
+  NewsAlertPermission:
+    Type: AWS::Lambda::Permission
     Properties:
-      VpcId: !Ref ECSVpc
-
-  ECSPublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: ECSVPCGatewayAttachment
-    Properties:
-      RouteTableId: !Ref ECSPublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ECSInternetGateway
-
-  ECSPublicSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ECSPublicSubnet1
-      RouteTableId: !Ref ECSPublicRouteTable
-
-  ECSPublicSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ECSPublicSubnet2
-      RouteTableId: !Ref ECSPublicRouteTable
-
-  ModelServer:
-    Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: g4dn.xlarge  # GPU-enabled instance
-      ImageId: ami-0c7217cdde317cfec  # Deep Learning AMI with CUDA
-      KeyName: gargoylescope-key  # We'll need to create this
-      SecurityGroups:
-        - !Ref ModelServerSecurityGroup
-      IamInstanceProfile: !Ref ModelServerInstanceProfile
-      UserData: 
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          cd /home/ubuntu
-          git clone https://github.com/yourusername/GargoyleScope.git
-          cd GargoyleScope
-          docker-compose up -d
-
-  ModelServerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow access to model server
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: 0.0.0.0/0
-
-  ModelServerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-  ModelServerInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref ModelServerRole
+      FunctionName: !Ref NewsAlerterFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyNewsAlert.Arn
 
 Outputs:
-  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-  # Find out more about other implicit resources you can reference within SAM
-  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  NewsAlerterApi:
-    Description: API Gateway endpoint URL
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
   NewsAlerterFunction:
     Description: News Alerter Lambda Function ARN
     Value: !GetAtt NewsAlerterFunction.Arn

@@ -1,7 +1,11 @@
 import os
 import json
 from dotenv import load_dotenv
-import openai  # Changed from OpenAI import
+import openai
+import boto3
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -19,112 +23,71 @@ def calculate_cost(input_tokens: int, output_tokens: int, model: str = "gpt-4o")
     else:
         return 0.0  # Add other model pricing if needed
 
-def analyze_entity(text: str, entity: str, advanced_response: bool = True):
+def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", advanced_response: bool = True):
     """Analyze article text and return analysis with highlighted HTML"""
     try:
-        # Set API key directly
+        # Set API key and model
         openai.api_key = os.getenv('OPENAI_API_KEY')
+        model = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-08-06')  # Use environment variable or default
         
         # Create prompt based on response type
         if advanced_response:
             prompt = f"""Analyze this article about {entity}. Return a JSON object with:
-1. All sentences mentioning {entity} (directly or indirectly) and their sentiment (positive/negative)
-2. The overall sentiment towards {entity} (must be exactly "positive", "neutral", or "negative")
-3. A concise 2-3 sentence summary about {entity}'s role in the article
-
-Return in this exact format:
-{{
-    "sentences": [
-        {{"text": "exact sentence here", "sentiment": "positive or negative"}}
-    ],
-    "sentiment": "positive/neutral/negative",
-    "summary": "2-3 sentence summary here"
-}}"""
+            1. sentiment: overall sentiment (positive/negative/neutral)
+            2. summary: 2-3 sentence summary
+            3. relevant_sentences: array of relevant quotes
+            4. highlighted_text: HTML version with <span class="positive"> or <span class="negative"> tags
+            5. important: boolean, true if article mentions lawsuits OR mentions {parent_entity}
+            """
         else:
-            prompt = f"""Analyze this article about {entity}. Return a JSON object with:
-1. The overall sentiment towards {entity} (must be exactly "positive", "neutral", or "negative")
-2. A concise 2-3 sentence summary about {entity}'s role in the article
+            prompt = f"""Analyze this article. Return a JSON object with:
+            1. sentiment: overall sentiment (positive/negative/neutral)
+            2. summary: 2-3 sentence summary
+            3. highlighted_text: original text with positive/negative phrases in HTML spans
+            4. important: boolean, true if article mentions lawsuits OR mentions {parent_entity}
+            """
 
-Return in this exact format:
-{{
-    "sentiment": "positive/neutral/negative",
-    "summary": "2-3 sentence summary here"
-}}"""
-        
+        # Get response from OpenAI
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # Changed to correct GPT-4o model name
+            model=model,  # Use the model from environment
             messages=[
-                {"role": "system", "content": "You are an expert at analyzing news articles. Extract relevant sentences and provide a brief summary. Return response in JSON format."},
-                {"role": "user", "content": prompt + f"\n\nArticle: {text}"}
+                {"role": "system", "content": "You are a helpful assistant that analyzes articles and returns JSON."},
+                {"role": "user", "content": f"Article text: {text}\n\nPrompt: {prompt}"}
             ]
         )
-        
-        # Calculate and print token usage and cost
-        input_tokens = response['usage']['prompt_tokens']
-        output_tokens = response['usage']['completion_tokens']
-        total_tokens = response['usage']['total_tokens']
-        cost = calculate_cost(input_tokens, output_tokens)
-        
-        print("\nToken Usage and Cost (GPT-4o):")
-        print("-" * 50)
-        print(f"Input Tokens: {input_tokens} (${(input_tokens * 2.50 / 1_000_000):.6f})")
-        print(f"Output Tokens: {output_tokens} (${(output_tokens * 10.00 / 1_000_000):.6f})")
-        print(f"Total Tokens: {total_tokens}")
-        print(f"Total Cost: ${cost:.6f}")
-        
-        # Print raw response for debugging
-        print("\nRaw OpenAI Response:")
-        print("-" * 50)
-        print(json.dumps(response, indent=2))
-        
-        # Parse the response - strip markdown formatting
-        raw_content = response['choices'][0]['message']['content']
-        # Remove markdown json formatting if present
-        if raw_content.startswith('```json'):
-            raw_content = raw_content.replace('```json\n', '').replace('\n```', '')
-        
-        # Parse the cleaned JSON
-        analysis = json.loads(raw_content)
-        
-        # Print parsed analysis
-        print("\nParsed Analysis:")
-        print("-" * 50)
-        print(json.dumps(analysis, indent=2))
-        
-        if advanced_response:
-            # Create numbered list of relevant sentences
-            relevant_sentences_html = "<ol>"
-            for sentence in analysis['sentences']:
-                sentiment_class = 'positive' if sentence['sentiment'] == 'positive' else 'negative'
-                relevant_sentences_html += f'<li><span class="{sentiment_class}">{sentence["text"]}</span></li>'
-            relevant_sentences_html += "</ol>"
+
+        # Debug print
+        print(f"OpenAI Response: {response.choices[0].message.content}")
+
+        # Parse JSON response
+        try:
+            # Clean the response - remove markdown code block markers
+            content = response.choices[0].message.content
+            content = content.replace('```json', '').replace('```', '').strip()
             
-            # Highlight sentences in the full text
-            highlighted_text = text
-            for sentence in sorted(analysis['sentences'], key=lambda x: len(x['text']), reverse=True):
-                sentiment_class = 'positive' if sentence['sentiment'] == 'positive' else 'negative'
-                highlighted_text = highlighted_text.replace(
-                    sentence['text'],
-                    f'<span class="{sentiment_class}">{sentence["text"]}</span>'
-                )
-        else:
-            relevant_sentences_html = ""
-            highlighted_text = text
-        
-        return {
-            'highlighted_text': highlighted_text,
-            'relevant_sentences': relevant_sentences_html,
-            'sentiment': analysis['sentiment'],
-            'summary': analysis['summary']
-        }
+            # Debug print
+            print(f"Cleaned Response: {content}")
+            
+            # Parse JSON
+            analysis = json.loads(content)
+            return analysis
+        except json.JSONDecodeError as e:
+            print(f"JSON Parse Error: {str(e)}")
+            print(f"Raw Response: {response.choices[0].message.content}")
+            return {
+                'highlighted_text': "Error parsing response",
+                'sentiment': "Analysis failed",
+                'summary': "Analysis failed",
+                'important': False
+            }
         
     except Exception as e:
         print(f"Error in analyze_entity: {str(e)}")
         return {
             'highlighted_text': f"Error analyzing article: {str(e)}",
-            'relevant_sentences': "Error analyzing sentences",
             'sentiment': "Analysis failed",
-            'summary': "Analysis failed"
+            'summary': "Analysis failed",
+            'important': False
         }
 
 def read_file(file_path):
@@ -135,37 +98,235 @@ def read_file(file_path):
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
+def analyze_search_results(entity: str, search_results: dict):
+    """Analyze search results for sentiment and relevance"""
+    print(f"\nAnalyzing search results for {entity}:")
+    print("-" * 50)
+
+    for article in search_results['articles']:
+        print(f"\nAnalyzing article: {article['title']}")
+        print("-" * 30)
+        
+        # Combine title and snippet for analysis
+        text_to_analyze = f"{article['title']} {article['snippet']}"
+        
+        # Analyze the article text
+        analysis = analyze_entity(text_to_analyze, entity, advanced_response=False)
+        
+        # Print analysis
+        print(f"Relevance: {'Relevant' if entity.lower() in text_to_analyze.lower() else 'Not directly relevant'}")
+        print(f"Sentiment: {analysis['sentiment']}")
+        print(f"Summary: {analysis['summary']}")
+        print(f"URL: {article['url']}")
+        print()
+
+def send_email_report(html_content: str, subject: str = "Daily News Alert", recipient: str = "neilpendyala@gmail.com"):
+    """Send HTML report via SES"""
+    try:
+        # Create SES client
+        ses = boto3.client('ses', region_name=os.getenv('REGION', 'us-west-1'))
+        
+        # Create message container
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = "reports@gargoylescope.com"  # Verified domain email
+        msg['To'] = recipient
+        
+        # Add HTML content
+        html_part = MIMEText(html_content, 'html')
+        msg.attach(html_part)
+        
+        # Send email
+        response = ses.send_raw_email(
+            Source=msg['From'],
+            Destinations=[recipient],
+            RawMessage={'Data': msg.as_string()}
+        )
+        
+        print(f"Email sent! Message ID: {response['MessageId']}")
+        return True
+        
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
+        return False
+
+def generate_html_report(analyzed_articles, entity: str) -> str:
+    """Generate HTML report from analyzed articles"""
+    # Read template
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
+    
+    # Build HTML for articles
+    all_analyses_html = ""
+    for article, analysis in analyzed_articles:
+        importance_class = "important" if analysis.get('important', False) else ""
+        article_html = f"""
+        <div class="article-box {importance_class}">
+            <h3>Article: {article['title']}</h3>
+            <p><strong>URL:</strong> <a href="{article['url']}" target="_blank">{article['url']}</a></p>
+            <p><strong>Sentiment:</strong> {analysis['sentiment']}</p>
+            <p><strong>Important:</strong> {"Yes" if analysis.get('important', False) else "No"}</p>
+            <p><strong>Summary:</strong> {analysis['summary']}</p>
+            <div class="article-content">
+                {analysis['highlighted_text']}
+            </div>
+        </div>
+        """
+        all_analyses_html += article_html
+    
+    # Replace template placeholders
+    html = template.replace('{{article_content}}', all_analyses_html)
+    html = html.replace('{{relevant_sentences}}', '')
+    html = html.replace('{{sentiment}}', 'Daily News Alert')
+    html = html.replace('{{summary}}', f'Analysis of recent articles about {entity}')
+    
+    return html
+
+def analyze_and_format_articles(search_results: dict, entity: str, parent_entity: str):
+    """Analyze articles and format for report"""
+    analyzed_articles = []
+    for article in search_results['articles']:
+        text_to_analyze = f"{article['title']} {article['snippet']}"
+        analysis = analyze_entity(text_to_analyze, entity, parent_entity, advanced_response=False)
+        analyzed_articles.append((article, analysis))
+    
+    # Sort articles - important ones first
+    analyzed_articles.sort(key=lambda x: (not x[1].get('important', False)))
+    return analyzed_articles
+
+def send_error_notification(error_message: str, recipient: str = "neilpendyala@gmail.com"):
+    """Send error notification email"""
+    try:
+        # Create SES client
+        ses = boto3.client('ses', region_name=os.getenv('REGION', 'us-west-1'))
+        
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = "⚠️ GargoyleScope Alert Failed"
+        msg['From'] = "reports@gargoylescope.com"
+        msg['To'] = recipient
+        
+        # Create HTML error message
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
+            <div style="background-color: #fff; padding: 20px; border-radius: 5px; border-left: 4px solid #ff6b6b;">
+                <h2 style="color: #ff6b6b; margin-top: 0;">Daily News Alert Failed</h2>
+                <p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} PT</p>
+                <p><strong>Error Details:</strong></p>
+                <pre style="background-color: #f8f8f8; padding: 15px; border-radius: 4px;">{error_message}</pre>
+                <p>Please check the AWS CloudWatch logs for more details.</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Add HTML content
+        html_part = MIMEText(html_content, 'html')
+        msg.attach(html_part)
+        
+        # Send email
+        ses.send_raw_email(
+            Source=msg['From'],
+            Destinations=[recipient],
+            RawMessage={'Data': msg.as_string()}
+        )
+        
+        print(f"Error notification sent to {recipient}")
+        
+    except Exception as e:
+        print(f"Failed to send error notification: {str(e)}")
+
+# Update main handler to include search and analysis
 def lambda_handler(event, context):
     """Lambda handler for article analysis"""
     try:
-        # Handle articlescan.html route
-        if event.get('path') == '/articlescan.html':
-            # Read template and article
+        # Check if this is a scheduled event
+        if event.get('source') == 'aws.events':
+            print("Running scheduled news alert...")
+            
+            try:
+                # Get entities from environment
+                entity = os.getenv('SEARCH_ENTITY', 'Rangoon Ruby')
+                parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
+                
+                # Run the analysis
+                from checkArticles import search_news_articles
+                search_results = search_news_articles(entity)
+                analyzed_articles = analyze_and_format_articles(search_results, entity, parent_entity)
+                html_report = generate_html_report(analyzed_articles, entity)
+                
+                # Send email
+                if send_email_report(html_report):
+                    return {
+                        'statusCode': 200,
+                        'body': 'Scheduled alert completed successfully'
+                    }
+                else:
+                    raise Exception("Failed to send email report")
+                    
+            except Exception as e:
+                error_msg = f"Failed to generate or send daily alert:\n{str(e)}"
+                print(error_msg)
+                send_error_notification(error_msg)
+                raise  # Re-raise to mark Lambda as failed
+        
+        # Handle web requests as before
+        elif event.get('path') == '/articlescan.html':
+            # Get entities from environment variables or use defaults
+            entity = os.getenv('SEARCH_ENTITY', 'Rangoon Ruby')
+            parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
+            
+            print(f"\nSearching for: {entity}")
+            print(f"Parent entity: {parent_entity}")
+            
+            # Search for recent articles
+            search_results = search_news_articles(entity)
+            
+            # Analyze search results and build HTML
+            analyzed_articles = []
+            for article in search_results['articles']:
+                text_to_analyze = f"{article['title']} {article['snippet']}"
+                analysis = analyze_entity(text_to_analyze, entity, parent_entity, advanced_response=False)
+                analyzed_articles.append((article, analysis))
+            
+            # Sort articles - important ones first
+            analyzed_articles.sort(key=lambda x: (not x[1].get('important', False)))
+            
+            # Build HTML
+            all_analyses_html = ""
+            for article, analysis in analyzed_articles:
+                importance_class = "important" if analysis.get('important', False) else ""
+                article_html = f"""
+                <div class="article-box {importance_class}">
+                    <h3>Article: {article['title']}</h3>
+                    <p><strong>URL:</strong> <a href="{article['url']}" target="_blank">{article['url']}</a></p>
+                    <p><strong>Sentiment:</strong> {analysis['sentiment']}</p>
+                    <p><strong>Important:</strong> {"Yes" if analysis.get('important', False) else "No"}</p>
+                    <p><strong>Summary:</strong> {analysis['summary']}</p>
+                    <div class="article-content">
+                        {analysis['highlighted_text']}
+                    </div>
+                </div>
+                """
+                all_analyses_html += article_html
+            
+            # Read and update template
             base_dir = os.path.dirname(os.path.abspath(__file__))
             template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
-            article = read_file(os.path.join(base_dir, 'testArticle.txt'))
-            
-            # Analyze article
-            entity = "Rangoon Ruby"
-            analysis = analyze_entity(article, entity, advanced_response=False)
             
             # Replace template placeholders
-            html = template.replace('{{article_content}}', analysis['highlighted_text'])
-            html = html.replace('{{relevant_sentences}}', analysis['relevant_sentences'])
-            html = html.replace('{{sentiment}}', analysis['sentiment'])
-            html = html.replace('{{summary}}', analysis['summary'])
-            
-            return {
-                'statusCode': 200,
+            html = template.replace('{{article_content}}', all_analyses_html)
+            html = html.replace('{{relevant_sentences}}', '')
+            html = html.replace('{{sentiment}}', 'Multiple Articles')
+            html = html.replace('{{summary}}', f'Analysis of {len(search_results["articles"])} recent articles about {entity}')
+        
+        return {
+            'statusCode': 200,
                 'headers': {'Content-Type': 'text/html'},
                 'body': html
-            }
-            
-        return {
-            'statusCode': 404,
-            'body': 'Not Found'
         }
-        
+    
     except Exception as e:
         return {
             'statusCode': 500,

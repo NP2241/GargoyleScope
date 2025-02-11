@@ -9,32 +9,75 @@
             background-color: #1a1d21;
             color: #ffffff;
             font-family: Arial, sans-serif;
-            line-height: 1.6;
+            line-height: 1.4;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
         }
         .summary-box {
             background: #2f3337;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+        }
+        .summary-box h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #66b3ff;
+        }
+        .article-box {
+            background: #2f3337;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #66b3ff;
+        }
+        .article-box h3 {
+            color: #ffffff;
+            margin: 0 0 10px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #444;
+            font-size: 1.1em;
+        }
+        .article-box p {
+            margin: 8px 0;
+        }
+        .article-box a {
+            color: #66b3ff;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        .article-box a:hover {
+            text-decoration: underline;
         }
         .article-content {
-            background: #2f3337;
-            padding: 20px;
-            border-radius: 8px;
-            white-space: pre-wrap;
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
         }
         .positive {
             background-color: rgba(40, 167, 69, 0.2);
-            padding: 2px 0;
+            padding: 2px 4px;
+            border-radius: 2px;
         }
         .negative {
             background-color: rgba(220, 53, 69, 0.2);
-            padding: 2px 0;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+        .article-box.important {
+            border-left: 4px solid #ff6b6b;  /* Red border for important articles */
+            background: #3a3337;  /* Slightly different background */
+        }
+        .article-box.important h3::after {
+            content: " ⚠️ IMPORTANT";
+            color: #ff6b6b;
+            font-size: 0.8em;
+            margin-left: 10px;
         }
     </style>
 </head>
@@ -45,7 +88,7 @@
             <p>{{summary}}</p>
         </div>
 
-        <div class="article-content">
+        <div class="articles">
             {{article_content}}
         </div>
     </div>
