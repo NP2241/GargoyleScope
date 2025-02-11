@@ -271,7 +271,7 @@ def lambda_handler(event, context):
                 send_error_notification(error_msg)
                 raise  # Re-raise to mark Lambda as failed
         
-        # Handle web requests as before
+        # Handle web requests
         elif event.get('path') == '/articlescan.html':
             # Get entities from environment variables or use defaults
             entity = os.getenv('SEARCH_ENTITY', 'Rangoon Ruby')
@@ -320,11 +320,17 @@ def lambda_handler(event, context):
             html = html.replace('{{relevant_sentences}}', '')
             html = html.replace('{{sentiment}}', 'Multiple Articles')
             html = html.replace('{{summary}}', f'Analysis of {len(search_results["articles"])} recent articles about {entity}')
-        
-        return {
-            'statusCode': 200,
+            
+            return {
+                'statusCode': 200,
                 'headers': {'Content-Type': 'text/html'},
                 'body': html
+            }
+        
+        # Default return for unmatched events
+        return {
+            'statusCode': 404,
+            'body': 'Not Found'
         }
     
     except Exception as e:
