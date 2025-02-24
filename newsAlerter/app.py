@@ -190,87 +190,110 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
         for _, articles in sorted_entities
     )
     
+    # Calculate totals
+    total_entities = len(entities)
+    total_articles = sum(len(articles) for _, articles in sorted_entities)
+    
     # Build HTML for all entities
-    all_analyses_html = f"""
-    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #2c3e50 !important; border-radius: 4px; margin-bottom: 30px;">
+    all_analyses_html = ""
+    
+    # Only add padding div if there are important articles
+    if total_important > 0:
+        all_analyses_html = '<div style="padding: 20px;">'
+    
+    for entity, analyzed_articles in sorted_entities:
+        # Filter for important articles only
+        important_articles = [(article, analysis) for article, analysis in analyzed_articles if analysis.get('important', False)]
+        
+        # Only show entity section if it has important articles
+        if important_articles:
+            # Add entity header
+            all_analyses_html += f"""
+            <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #e74c3c !important; border-radius: 4px; margin: 30px 0 15px 0;">
+                <tr>
+                    <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
+                        <h2 style="margin: 0; font-size: 20px; display: inline-block; color: #ffffff !important;">Articles about {entity}</h2>
+                        <span style="float: right; font-weight: bold; color: #ffffff !important;">{len(important_articles)} important articles</span>
+                    </td>
+                </tr>
+            </table>
+            """
+            
+            # Add important articles for this entity
+            for idx, (article, analysis) in enumerate(important_articles, 1):
+                article_html = f"""
+                <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #ff6b6b; background-color: #fff5f5;">
+                    <tr>
+                        <td style="font-family: Arial, sans-serif; padding: 15px;">
+                            <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">
+                                #{idx}: {article['title']}
+                                <span style="color: #ff6b6b; font-size: 14px;">(Important)</span>
+                            </h3>
+                            <table width="100%" cellpadding="5" cellspacing="0">
+                                <tr>
+                                    <td style="font-family: Arial, sans-serif;">
+                                        <strong style="color: #7f8c8d;">URL:</strong> 
+                                        <a href="{article['url']}" style="color: #3498db; text-decoration: none;" target="_blank">{article['url']}</a>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="font-family: Arial, sans-serif;">
+                                        <strong style="color: #7f8c8d;">Sentiment:</strong> 
+                                        <span style="color: #2c3e50;">{analysis['sentiment']}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="font-family: Arial, sans-serif;">
+                                        <strong style="color: #7f8c8d;">AI Summary:</strong><br>
+                                        <span style="color: #2c3e50; line-height: 1.4;">{analysis['summary']}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="font-family: Arial, sans-serif;">
+                                        <strong style="color: #7f8c8d;">Article Snippet:</strong><br>
+                                        <span style="color: #2c3e50; line-height: 1.4;">{article.get('snippet', 'No snippet available')}</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+                """
+                all_analyses_html += article_html
+    
+    # Close padding div if it was opened
+    if total_important > 0:
+        all_analyses_html += '</div>'
+    
+    # Add footer stats with improved styling
+    all_analyses_html += f"""
+    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef; margin-top: 20px;">
         <tr>
-            <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
-                <h2 style="margin: 0; font-size: 20px; color: #ffffff !important;">Found {total_important} important articles across {len(entities)} entities</h2>
+            <td style="font-family: Arial, sans-serif; 
+                       color: #444444; 
+                       padding: 25px; 
+                       text-align: center; 
+                       font-size: 16px;
+                       font-weight: 500;
+                       line-height: 1.5;
+                       background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+                       border-top: 1px solid #e9ecef;
+                       box-shadow: 0 -2px 10px rgba(0,0,0,0.03);">
+                <div style="max-width: 600px; margin: 0 auto;">
+                    Across <strong style="color: #2c3e50;">{total_entities}</strong> entities, 
+                    we scanned <strong style="color: #2c3e50;">{total_articles}</strong> articles 
+                    and found <strong style="color: #e74c3c;">{total_important}</strong> important articles.
+                </div>
             </td>
         </tr>
     </table>
     """
     
-    for entity, analyzed_articles in sorted_entities:
-        important_count = sum(1 for _, analysis in analyzed_articles if analysis.get('important', False))
-        total_count = len(analyzed_articles)
-        
-        # Add entity header with importance indicator - force colors with !important
-        header_style = "background-color: #e74c3c !important;" if important_count > 0 else "background-color: #2c3e50 !important;"
-        all_analyses_html += f"""
-        <table width="100%" cellpadding="10" cellspacing="0" style="{header_style} border-radius: 4px; margin: 30px 0 15px 0;">
-            <tr>
-                <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
-                    <h2 style="margin: 0; font-size: 20px; display: inline-block; color: #ffffff !important;">Articles about {entity}</h2>
-                    <span style="float: right; font-weight: bold; color: #ffffff !important;">{important_count} important out of {total_count} articles</span>
-                </td>
-            </tr>
-        </table>
-        """
-        
-        # Add articles for this entity
-        for idx, (article, analysis) in enumerate(analyzed_articles, 1):
-            is_important = analysis.get('important', False)
-            importance_style = """
-                border-left: 4px solid #ff6b6b;
-                background-color: #fff5f5;
-            """ if is_important else ""
-            
-            article_html = f"""
-            <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); {importance_style}">
-                <tr>
-                    <td style="font-family: Arial, sans-serif; padding: 15px;">
-                        <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">
-                            #{idx}: {article['title']}
-                            {' <span style="color: #ff6b6b; font-size: 14px;">(Important)</span>' if is_important else ''}
-                        </h3>
-                        <table width="100%" cellpadding="5" cellspacing="0">
-                            <tr>
-                                <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">URL:</strong> 
-                                    <a href="{article['url']}" style="color: #3498db; text-decoration: none;" target="_blank">{article['url']}</a>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">Sentiment:</strong> 
-                                    <span style="color: #2c3e50;">{analysis['sentiment']}</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">AI Summary:</strong><br>
-                                    <span style="color: #2c3e50; line-height: 1.4;">{analysis['summary']}</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="font-family: Arial, sans-serif;">
-                                    <strong style="color: #7f8c8d;">Article Snippet:</strong><br>
-                                    <span style="color: #2c3e50; line-height: 1.4;">{article.get('snippet', 'No snippet available')}</span>
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
-            """
-            all_analyses_html += article_html
-    
     # Replace template placeholders
     html = template.replace('{{article_content}}', all_analyses_html)
     html = html.replace('{{relevant_sentences}}', '')
     html = html.replace('{{sentiment}}', 'News Alert')
-    html = html.replace('{{summary}}', f'Analysis of recent articles about {", ".join(entities)}')
+    html = html.replace('{{summary}}', f'Found {total_important} important articles across {len(entities)} entities')
     
     return html
 
