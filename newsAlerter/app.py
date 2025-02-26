@@ -173,6 +173,19 @@ def send_email_report(html_content: str, subject: str = "News Alert", recipient:
 
 def generate_html_report(all_entity_articles, entities: list) -> str:
     """Generate HTML report from analyzed articles for multiple entities"""
+    # Define color scheme
+    colors = {
+        'primary': '#FF0000',      # Bright red for important items
+        'text': '#034748',         # Midnight green for text (was #2c3e50)
+        'text_light': '#444444',   # Gray for secondary text
+        'text_muted': '#7f8c8d',   # Muted gray for labels
+        'link': '#034748',         # Midnight green for links
+        'white': '#ffffff',        # White
+        'bg_light': '#f8f9fa',     # Light gray background
+        'bg_pink': '#fff5f5',      # Light pink background
+        'border': '#e9ecef'        # Border color
+    }
+    
     # Read template
     base_dir = os.path.dirname(os.path.abspath(__file__))
     template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
@@ -197,9 +210,32 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     # Build HTML for all entities
     all_analyses_html = ""
     
+    # Stats section
+    all_analyses_html += f"""
+    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: {colors['bg_light']}; 
+           border-radius: 6px; 
+           border: 1px solid {colors['border']};">
+        <tr>
+            <td style="font-family: Arial, sans-serif; 
+                       color: {colors['text_light']}; 
+                       padding: 25px; 
+                       text-align: center; 
+                       font-size: 16px;
+                       font-weight: 500;
+                       line-height: 1.6;">
+                <div style="max-width: 600px; margin: 0 auto;">
+                    Across <strong style="color: {colors['text']}">{total_entities}</strong> entities, 
+                    we scanned <strong style="color: {colors['text']}">{total_articles}</strong> articles 
+                    and found <strong style="color: {colors['primary']}">{total_important}</strong> important {('article' if total_important == 1 else 'articles')}.
+                </div>
+            </td>
+        </tr>
+    </table>
+    """
+    
     # Only add padding div if there are important articles
     if total_important > 0:
-        all_analyses_html = '<div style="padding: 20px;">'
+        all_analyses_html += '<div style="padding: 20px;">'
     
     for entity, analyzed_articles in sorted_entities:
         # Filter for important articles only
@@ -209,49 +245,79 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
         if important_articles:
             # Add entity header
             all_analyses_html += f"""
-            <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #e74c3c !important; border-radius: 4px; margin: 30px 0 15px 0;">
-                <tr>
-                    <td style="font-family: Arial, sans-serif; color: #ffffff !important; padding: 15px;">
-                        <h2 style="margin: 0; font-size: 20px; display: inline-block; color: #ffffff !important;">Articles about {entity}</h2>
-                        <span style="float: right; font-weight: bold; color: #ffffff !important;">{len(important_articles)} important articles</span>
-                    </td>
-                </tr>
-            </table>
+            <div style="margin: 10px 0 15px 0;">
+                <h2 style="margin: 0; 
+                          font-size: 18px; 
+                          color: {colors['text']}; 
+                          padding-bottom: 10px; 
+                          border-bottom: 2px solid {colors['border']};
+                          font-weight: 600;">
+                    Articles about {entity}
+                    <span style="float: right; 
+                               font-weight: normal; 
+                               font-size: 14px; 
+                               color: {colors['text_light']};">
+                        {len(important_articles)} important {('article' if len(important_articles) == 1 else 'articles')}
+                    </span>
+                </h2>
+            </div>
             """
             
             # Add important articles for this entity
             for idx, (article, analysis) in enumerate(important_articles, 1):
+                # Article box with refined styling
                 article_html = f"""
-                <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #ff6b6b; background-color: #fff5f5;">
+                <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 20px; 
+                       background-color: {colors['white']}; 
+                       border-radius: 4px; 
+                       box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+                       border-left: 4px solid {colors['primary']}; 
+                       background-color: {colors['bg_pink']};">
                     <tr>
-                        <td style="font-family: Arial, sans-serif; padding: 15px;">
-                            <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 18px;">
-                                #{idx}: {article['title']}
-                                <span style="color: #ff6b6b; font-size: 14px;">(Important)</span>
-                            </h3>
-                            <table width="100%" cellpadding="5" cellspacing="0">
+                        <td style="font-family: Arial, sans-serif; padding: 25px;">
+                            <div style="display: flex; 
+                                       align-items: center; 
+                                       margin-bottom: 20px;
+                                       border-bottom: 1px solid {colors['border']};
+                                       padding-bottom: 15px;">
+                                <h3 style="color: {colors['text']}; 
+                                           margin: 0; 
+                                           font-size: 18px;
+                                           flex-grow: 1;">
+                                    #{idx}: {article['title']}
+                                </h3>
+                                <span style="background-color: {colors['primary']}; 
+                                           color: {colors['text']}; 
+                                           font-size: 13px;
+                                           padding: 6px 12px;
+                                           border-radius: 4px;
+                                           margin-left: 15px;">
+                                    Important
+                                </span>
+                            </div>
+                            <table width="100%" cellpadding="5" cellspacing="0" style="line-height: 1.6;">
                                 <tr>
                                     <td style="font-family: Arial, sans-serif;">
-                                        <strong style="color: #7f8c8d;">URL:</strong> 
-                                        <a href="{article['url']}" style="color: #3498db; text-decoration: none;" target="_blank">{article['url']}</a>
+                                        <strong style="color: {colors['text_muted']};">URL:</strong> 
+                                        <a href="{article['url']}" style="color: {colors['link']}; text-decoration: none;" target="_blank">{article['url']}</a>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="font-family: Arial, sans-serif;">
-                                        <strong style="color: #7f8c8d;">Sentiment:</strong> 
-                                        <span style="color: #2c3e50;">{analysis['sentiment']}</span>
+                                        <strong style="color: {colors['text_muted']};">Sentiment:</strong> 
+                                        <span style="color: {colors['text']};">{analysis['sentiment']}</span>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="font-family: Arial, sans-serif;">
-                                        <strong style="color: #7f8c8d;">AI Summary:</strong><br>
-                                        <span style="color: #2c3e50; line-height: 1.4;">{analysis['summary']}</span>
+                                        <strong style="color: {colors['text_muted']};">AI Summary:</strong><br>
+                                        <span style="color: {colors['text']}; line-height: 1.4;">{analysis['summary']}</span>
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="font-family: Arial, sans-serif;">
-                                        <strong style="color: #7f8c8d;">Article Snippet:</strong><br>
-                                        <span style="color: #2c3e50; line-height: 1.4;">{article.get('snippet', 'No snippet available')}</span>
+                                        <strong style="color: {colors['text_muted']};">Article Snippet:</strong><br>
+                                        <span style="color: {colors['text']}; line-height: 1.4;">{article.get('snippet', 'No snippet available')}</span>
                                     </td>
                                 </tr>
                             </table>
@@ -265,35 +331,11 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     if total_important > 0:
         all_analyses_html += '</div>'
     
-    # Add footer stats with improved styling
-    all_analyses_html += f"""
-    <table width="100%" cellpadding="10" cellspacing="0" style="background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef; margin-top: 20px;">
-        <tr>
-            <td style="font-family: Arial, sans-serif; 
-                       color: #444444; 
-                       padding: 25px; 
-                       text-align: center; 
-                       font-size: 16px;
-                       font-weight: 500;
-                       line-height: 1.5;
-                       background: linear-gradient(to bottom, #ffffff, #f8f9fa);
-                       border-top: 1px solid #e9ecef;
-                       box-shadow: 0 -2px 10px rgba(0,0,0,0.03);">
-                <div style="max-width: 600px; margin: 0 auto;">
-                    Across <strong style="color: #2c3e50;">{total_entities}</strong> entities, 
-                    we scanned <strong style="color: #2c3e50;">{total_articles}</strong> articles 
-                    and found <strong style="color: #e74c3c;">{total_important}</strong> important articles.
-                </div>
-            </td>
-        </tr>
-    </table>
-    """
-    
     # Replace template placeholders
     html = template.replace('{{article_content}}', all_analyses_html)
     html = html.replace('{{relevant_sentences}}', '')
     html = html.replace('{{sentiment}}', 'News Alert')
-    html = html.replace('{{summary}}', f'Found {total_important} important articles across {len(entities)} entities')
+    html = html.replace('{{summary}}', '')  # Remove the summary from header
     
     return html
 

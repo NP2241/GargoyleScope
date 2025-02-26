@@ -1,244 +1,153 @@
 from app import generate_html_report
 import webbrowser
 import os
+import sys
 import tempfile
+import time
+import threading
 
-def create_dummy_data():
-    # Create dummy articles and analysis
-    dummy_data = {
-        'Rangoon Ruby': [
-            ({'title': 'New Chef Joins Rangoon Ruby Team',
-              'url': 'http://example.com/rangoon/1',
-              'snippet': 'Acclaimed Burmese chef joins restaurant to revamp menu.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Restaurant hires experienced chef to enhance dining experience.',
-              'important': False
-             }),
-            ({'title': 'Weekend Special: Tea Leaf Salad',
-              'url': 'http://example.com/rangoon/2',
-              'snippet': 'Popular dish now available for weekend brunch service.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Menu update featuring signature dish during weekend hours.',
-              'important': False
-             }),
-            ({'title': 'Local Food Blog Reviews New Menu',
-              'url': 'http://example.com/rangoon/3',
-              'snippet': 'Detailed review of recently updated menu items and atmosphere.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Positive review highlighting new dishes and improvements.',
-              'important': False
-             }),
-            ({'title': 'Holiday Hours Announcement',
-              'url': 'http://example.com/rangoon/4',
-              'snippet': 'Modified operating hours for upcoming holiday season.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Schedule changes for December holiday period.',
-              'important': False
-             }),
-            ({'title': 'Customer Appreciation Week',
-              'url': 'http://example.com/rangoon/5',
-              'snippet': 'Special promotions and events planned for loyal customers.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Week-long celebration featuring discounts and special menu items.',
-              'important': False
-             }),
-            ({'title': 'Catering Service Expansion',
-              'url': 'http://example.com/rangoon/6',
-              'snippet': 'Restaurant now offering expanded catering options for events.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'New catering menu and services announced for private events.',
-              'important': False
-             }),
-            ({'title': 'Local Charity Partnership',
-              'url': 'http://example.com/rangoon/7',
-              'snippet': 'Restaurant partners with local food bank for holiday giving.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Community involvement initiative launched for holiday season.',
-              'important': False
-             })
-        ],
-        'Nordstrom': [
-            ({'title': 'Holiday Sale Preview',
-              'url': 'http://example.com/nordstrom/1',
-              'snippet': 'Early access to holiday deals and promotions.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Upcoming sale events and special promotions.',
-              'important': False
-             }),
-            ({'title': 'New Designer Collection Launch',
-              'url': 'http://example.com/nordstrom/2',
-              'snippet': 'Exclusive designer collection now available.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Fashion launch featuring new designer partnerships.',
-              'important': False
-             }),
-            ({'title': 'Beauty Department Expansion',
-              'url': 'http://example.com/nordstrom/3',
-              'snippet': 'Renovated beauty section with new brands.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Store improvements and new product offerings.',
-              'important': False
-             }),
-            ({'title': 'Customer Loyalty Program Updates',
-              'url': 'http://example.com/nordstrom/4',
-              'snippet': 'Changes to rewards program and benefits.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Modified customer rewards structure announced.',
-              'important': False
-             }),
-            ({'title': 'Weekend Pop-up Shop',
-              'url': 'http://example.com/nordstrom/5',
-              'snippet': 'Local artisan showcase this weekend.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Special event featuring local vendors.',
-              'important': False
-             }),
-            ({'title': 'Online Returns Now Available',
-              'url': 'http://example.com/nordstrom/6',
-              'snippet': 'New in-store service for online purchases.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Enhanced return process implemented.',
-              'important': False
-             }),
-            ({'title': 'Seasonal Hiring Event',
-              'url': 'http://example.com/nordstrom/7',
-              'snippet': 'Job opportunities for holiday season.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Employment opportunities for temporary positions.',
-              'important': False
-             }),
-            ({'title': 'Store Hours Extension',
-              'url': 'http://example.com/nordstrom/8',
-              'snippet': 'Extended shopping hours announced.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Modified store hours for holiday shopping.',
-              'important': False
-             })
-        ],
-        'Vance Brown Construction': [
-            ({'title': 'New Residential Development',
-              'url': 'http://example.com/vancebrown/1',
-              'snippet': 'Housing project announced in Palo Alto.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'New construction project in planning phase.',
-              'important': False
-             }),
-            ({'title': 'Sustainability Initiative Launch',
-              'url': 'http://example.com/vancebrown/2',
-              'snippet': 'Green building practices implemented.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Environmental focus in construction methods.',
-              'important': False
-             }),
-            ({'title': 'Community Project Completion',
-              'url': 'http://example.com/vancebrown/3',
-              'snippet': 'Local community center finished ahead of schedule.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Successful completion of public facility.',
-              'important': False
-             }),
-            ({'title': 'Industry Award Recognition',
-              'url': 'http://example.com/vancebrown/4',
-              'snippet': 'Company receives building excellence award.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Recognition for construction quality and innovation.',
-              'important': False
-             }),
-            ({'title': 'Safety Record Milestone',
-              'url': 'http://example.com/vancebrown/5',
-              'snippet': 'One year without workplace incidents.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Outstanding safety performance acknowledged.',
-              'important': False
-             }),
-            ({'title': 'Apprenticeship Program Launch',
-              'url': 'http://example.com/vancebrown/6',
-              'snippet': 'New training initiative for construction careers.'
-             }, {
-              'sentiment': 'positive',
-              'summary': 'Educational program for aspiring builders.',
-              'important': False
-             }),
-            ({'title': 'Equipment Fleet Expansion',
-              'url': 'http://example.com/vancebrown/7',
-              'snippet': 'Investment in new construction equipment.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Company growth and capability enhancement.',
-              'important': False
-             }),
-            ({'title': 'Project Timeline Update',
-              'url': 'http://example.com/vancebrown/8',
-              'snippet': 'Status report on current construction projects.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Progress updates on ongoing developments.',
-              'important': False
-             }),
-            ({'title': 'Winter Weather Preparations',
-              'url': 'http://example.com/vancebrown/9',
-              'snippet': 'Seasonal adjustments to construction schedule.'
-             }, {
-              'sentiment': 'neutral',
-              'summary': 'Modified work plans for winter conditions.',
-              'important': False
-             })
-        ]
-    }
+def create_dummy_data(scenario=1):
+    """
+    Create dummy data for different scenarios:
+    1: Multiple important articles across all entities
+    2: Only one entity has important articles
+    3: No important articles
+    """
+    
+    # Base articles that are never important
+    regular_articles = [
+        ({'title': 'Regular Update',
+          'url': 'http://example.com/regular/1',
+          'snippet': 'Standard business update.'
+         }, {
+          'sentiment': 'neutral',
+          'summary': 'Regular business operations update.',
+          'important': False
+         }),
+        # ... add more regular articles as needed
+    ]
+    
+    # Important articles for different scenarios
+    rangoon_important = [
+        ({'title': '[IMPORTANT] Health Code Violation at Rangoon Ruby',
+          'url': 'http://example.com/rangoon/urgent/1',
+          'snippet': 'Major health code violations found at Stanford Shopping Center location.'
+         }, {
+          'sentiment': 'negative',
+          'summary': 'Critical health violations requiring immediate attention.',
+          'important': True
+         })
+    ]
+    
+    nordstrom_important = [
+        ({'title': '[IMPORTANT] Stanford Store Closure',
+          'url': 'http://example.com/nordstrom/urgent/1',
+          'snippet': 'Unexpected closure of Stanford Shopping Center location.'
+         }, {
+          'sentiment': 'negative',
+          'summary': 'Major retail location closing immediately.',
+          'important': True
+         }),
+        ({'title': '[IMPORTANT] Layoffs Announced at Nordstrom',
+          'url': 'http://example.com/nordstrom/urgent/2',
+          'snippet': 'Significant staff reductions planned for Stanford location.'
+         }, {
+          'sentiment': 'negative',
+          'summary': 'Major workforce changes affecting local store operations.',
+          'important': True
+         })
+    ]
+    
+    vance_important = [
+        ({'title': '[IMPORTANT] Construction Project Halted',
+          'url': 'http://example.com/vance/urgent/1',
+          'snippet': 'Stanford project suspended due to safety concerns.'
+         }, {
+          'sentiment': 'negative',
+          'summary': 'Immediate suspension of major construction project.',
+          'important': True
+         })
+    ]
+    
+    # Scenario configurations
+    if scenario == 1:
+        # All entities have important articles
+        dummy_data = {
+            'Rangoon Ruby': rangoon_important + regular_articles,
+            'Nordstrom': nordstrom_important + regular_articles,
+            'Vance Brown Construction': vance_important + regular_articles
+        }
+    elif scenario == 2:
+        # Only Rangoon Ruby has important articles
+        dummy_data = {
+            'Rangoon Ruby': rangoon_important + regular_articles,
+            'Nordstrom': regular_articles,
+            'Vance Brown Construction': regular_articles
+        }
+    else:  # scenario 3
+        # No important articles
+        dummy_data = {
+            'Rangoon Ruby': regular_articles,
+            'Nordstrom': regular_articles,
+            'Vance Brown Construction': regular_articles
+        }
+    
+    # Print scenario info
+    print(f"\nRunning Scenario {scenario}:")
+    if scenario == 1:
+        print("All entities have important articles")
+    elif scenario == 2:
+        print("Only Rangoon Ruby has important articles")
+    else:
+        print("No important articles")
     
     # Print counts for verification
     for entity, articles in dummy_data.items():
-        print(f"{entity}: {len(articles)} articles")
+        important_count = sum(1 for _, analysis in articles if analysis.get('important', False))
+        print(f"{entity}: {len(articles)} articles ({important_count} important)")
     
     entities = list(dummy_data.keys())
     return dummy_data, entities
 
-def preview_email():
-    # Generate dummy data
-    dummy_data, entities = create_dummy_data()
-    
-    # Force print the data structure
-    print("\n=== DEBUG INFO ===")
-    for entity, articles in dummy_data.items():
-        print(f"\n{entity}:")
-        for i, (article, analysis) in enumerate(articles, 1):
-            print(f"{i}. {article['title']} (Important: {analysis['important']})")
+def preview_email(scenario=1):
+    # Generate dummy data for specified scenario
+    dummy_data, entities = create_dummy_data(scenario)
     
     # Generate HTML
     html_content = generate_html_report(dummy_data, entities)
     
-    # Save to a fixed location
-    output_path = "email_preview.html"
-    with open(output_path, 'w') as f:
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
         f.write(html_content)
-    
-    print(f"\nSaved HTML to: {os.path.abspath(output_path)}")
-    print(f"File size: {os.path.getsize(output_path)} bytes")
+        temp_path = f.name
     
     # Open in browser
-    webbrowser.open('file://' + os.path.abspath(output_path))
+    webbrowser.open('file://' + os.path.abspath(temp_path))
+    
+    # Delete the temporary file after a short delay
+    def cleanup():
+        time.sleep(1)  # Give browser time to load
+        os.unlink(temp_path)
+    
+    threading.Thread(target=cleanup).start()
     
     return html_content
 
 if __name__ == "__main__":
-    preview_email()
+    # Get scenario from command line argument
+    if len(sys.argv) != 2 or sys.argv[1] not in ['all', 'some', 'none']:
+        print("Usage: python test_email.py [all|some|none]")
+        print("  all  - All entities have important articles")
+        print("  some - Only one entity has important articles")
+        print("  none - No important articles")
+        sys.exit(1)
+    
+    # Convert argument to scenario number
+    scenario_map = {
+        'all': 1,
+        'some': 2,
+        'none': 3
+    }
+    
+    scenario = scenario_map[sys.argv[1]]
+    preview_email(scenario)
