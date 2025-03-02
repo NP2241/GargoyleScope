@@ -29,7 +29,7 @@ def create_dummy_data(scenario=1):
     
     # Important articles for different scenarios
     rangoon_important = [
-        ({'title': '[IMPORTANT] Health Code Violation at Rangoon Ruby',
+        ({'title': 'Health Code Violation at Rangoon Ruby',
           'url': 'http://example.com/rangoon/urgent/1',
           'snippet': 'Major health code violations found at Stanford Shopping Center location.'
          }, {
@@ -40,7 +40,7 @@ def create_dummy_data(scenario=1):
     ]
     
     nordstrom_important = [
-        ({'title': '[IMPORTANT] Stanford Store Closure',
+        ({'title': 'Stanford Store Closure',
           'url': 'http://example.com/nordstrom/urgent/1',
           'snippet': 'Unexpected closure of Stanford Shopping Center location.'
          }, {
@@ -48,7 +48,7 @@ def create_dummy_data(scenario=1):
           'summary': 'Major retail location closing immediately.',
           'important': True
          }),
-        ({'title': '[IMPORTANT] Layoffs Announced at Nordstrom',
+        ({'title': 'Layoffs Announced at Nordstrom',
           'url': 'http://example.com/nordstrom/urgent/2',
           'snippet': 'Significant staff reductions planned for Stanford location.'
          }, {
@@ -59,7 +59,7 @@ def create_dummy_data(scenario=1):
     ]
     
     vance_important = [
-        ({'title': '[IMPORTANT] Construction Project Halted',
+        ({'title': 'Construction Project Halted',
           'url': 'http://example.com/vance/urgent/1',
           'snippet': 'Stanford project suspended due to safety concerns.'
          }, {
