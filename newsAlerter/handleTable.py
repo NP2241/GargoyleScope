@@ -249,15 +249,16 @@ def delete_entities(parent_entity: str, entities: list):
         print(f"Error: {str(e)}")
         raise
 
-def list_entities(parent_entity: str):
+def list_entities(parent_entity: str, include_analysis: bool = False):
     """
     List all entities in the tracking table.
     
     Args:
         parent_entity (str): Name of the parent entity (e.g., "Stanford")
+        include_analysis (bool): Whether to include analysis data in response
         
     Returns:
-        dict: Results of the operation including list of all entity names
+        dict: Results of the operation including list of all entity names and optionally their analysis
         
     Raises:
         Exception: If table doesn't exist or other errors occur
@@ -279,15 +280,85 @@ def list_entities(parent_entity: str):
         # Get table resource
         table = dynamodb_resource.Table(table_name)
         
-        # Scan the table to get all entities
+        # Scan the table - include analysis if requested
+        projection = "entity_name, analysis" if include_analysis else "entity_name"
         response = table.scan(
-            ProjectionExpression="entity_name"  # Only retrieve the entity_name field
+            ProjectionExpression=projection
         )
         
-        # Extract entity names from response
-        entities = [item['entity_name'] for item in response['Items']]
+        # Extract items from response
+        items = response['Items']
         
         # Handle pagination if there are more items
+        while 'LastEvaluatedKey' in response:
+            response = table.scan(
+                ProjectionExpression=projection,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response['Items'])
+        
+        # Sort items by entity name
+        items.sort(key=lambda x: x['entity_name'])
+        
+        # Prepare response based on include_analysis flag
+        if include_analysis:
+            result = {
+                "message": f"Retrieved {len(items)} entities with analysis from {table_name}",
+                "table_name": table_name,
+                "entities": items,
+                "count": len(items)
+            }
+        else:
+            # Extract just the entity names
+            entity_names = [item['entity_name'] for item in items]
+            result = {
+                "message": f"Retrieved {len(entity_names)} entities from {table_name}",
+                "table_name": table_name,
+                "entities": entity_names,
+                "count": len(entity_names)
+            }
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise
+
+def clear_attributes(parent_entity: str):
+    """
+    Clear analysis fields and reset completed flags for all entities in the table.
+    
+    Args:
+        parent_entity (str): Name of the parent entity (e.g., "Stanford")
+        
+    Returns:
+        dict: Results of the operation including number of entities cleared
+        
+    Raises:
+        Exception: If table doesn't exist or other errors occur
+    """
+    # Initialize DynamoDB client and resource
+    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    
+    # Define table name
+    table_name = f"{parent_entity}_TrackedEntities"
+    
+    try:
+        # Check if table exists
+        try:
+            dynamodb.describe_table(TableName=table_name)
+        except dynamodb.exceptions.ResourceNotFoundException:
+            raise Exception(f"Table {table_name} does not exist. Please create it first using the setup action.")
+        
+        # Get table resource
+        table = dynamodb_resource.Table(table_name)
+        
+        # Get all entities
+        response = table.scan(ProjectionExpression="entity_name")
+        entities = [item['entity_name'] for item in response['Items']]
+        
+        # Handle pagination if needed
         while 'LastEvaluatedKey' in response:
             response = table.scan(
                 ProjectionExpression="entity_name",
@@ -295,14 +366,118 @@ def list_entities(parent_entity: str):
             )
             entities.extend([item['entity_name'] for item in response['Items']])
         
-        # Sort entities alphabetically
-        entities.sort()
+        # Track successful and failed updates
+        cleared_entities = []
+        failed_entities = []
+        
+        # Update each entity
+        for entity in entities:
+            try:
+                table.update_item(
+                    Key={'entity_name': entity},
+                    UpdateExpression="SET analysis = :empty_analysis, completed = :false",
+                    ExpressionAttributeValues={
+                        ':empty_analysis': {},
+                        ':false': False
+                    }
+                )
+                cleared_entities.append(entity)
+            except Exception as e:
+                print(f"Failed to clear attributes for entity {entity}: {str(e)}")
+                failed_entities.append({
+                    "entity": entity,
+                    "error": str(e)
+                })
+        
+        # Prepare response
+        response = {
+            "message": f"Cleared attributes for {len(cleared_entities)} entities in {table_name}",
+            "table_name": table_name,
+            "cleared_entities": cleared_entities,
+            "summary": {
+                "total_entities": len(entities),
+                "successfully_cleared": len(cleared_entities),
+                "failed": len(failed_entities)
+            }
+        }
+        
+        # Include failures in response if any occurred
+        if failed_entities:
+            response["failed_entities"] = failed_entities
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise
+
+def check_completed(parent_entity: str):
+    """
+    Check if all entities in the table have completed=True
+    
+    Args:
+        parent_entity (str): Name of the parent entity (e.g., "Stanford")
+        
+    Returns:
+        dict: Results of the operation including completion status
+        
+    Raises:
+        Exception: If table doesn't exist or other errors occur
+    """
+    # Initialize DynamoDB client and resource
+    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    
+    # Define table name
+    table_name = f"{parent_entity}_TrackedEntities"
+    
+    try:
+        # Check if table exists
+        try:
+            dynamodb.describe_table(TableName=table_name)
+        except dynamodb.exceptions.ResourceNotFoundException:
+            raise Exception(f"Table {table_name} does not exist. Please create it first using the setup action.")
+        
+        # Get table resource
+        table = dynamodb_resource.Table(table_name)
+        
+        # Scan the table to get all entities and their completed status
+        response = table.scan(
+            ProjectionExpression="entity_name, completed"
+        )
+        
+        entities = response['Items']
+        
+        # Handle pagination if needed
+        while 'LastEvaluatedKey' in response:
+            response = table.scan(
+                ProjectionExpression="entity_name, completed",
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            entities.extend(response['Items'])
+        
+        # Check if any entities exist
+        if not entities:
+            return {
+                "message": f"No entities found in table {table_name}",
+                "table_name": table_name,
+                "all_completed": False,
+                "total_entities": 0,
+                "completed_entities": 0
+            }
+        
+        # Count completed entities
+        completed_entities = [e for e in entities if e.get('completed', False) is True]
+        
+        # All entities must exist and be marked as completed
+        all_completed = len(completed_entities) == len(entities)
         
         return {
-            "message": f"Retrieved {len(entities)} entities from {table_name}",
+            "message": f"Checked completion status for {len(entities)} entities in {table_name}",
             "table_name": table_name,
-            "entities": entities,
-            "count": len(entities)
+            "all_completed": all_completed,
+            "total_entities": len(entities),
+            "completed_entities": len(completed_entities)
         }
         
     except Exception as e:
@@ -315,7 +490,7 @@ def lambda_handler(event, context):
     
     Expected event format:
     {
-        "action": "setup|add|delete|list",
+        "action": "setup|add|delete|list|clear|checkCompleted",
         "parent_entity": "Stanford",
         "entities": ["Entity1", "Entity2"]  # Required for add/delete actions
     }
@@ -358,12 +533,17 @@ def lambda_handler(event, context):
                 }
             response = delete_entities(parent_entity, entities)
         elif action == "list":
-            response = list_entities(parent_entity)
+            include_analysis = event.get('include_analysis', False)
+            response = list_entities(parent_entity, include_analysis)
+        elif action == "clear":
+            response = clear_attributes(parent_entity)
+        elif action == "checkCompleted":
+            response = check_completed(parent_entity)
         else:
             return {
                 'statusCode': 400,
                 'body': json.dumps({
-                    'error': f'Invalid action: {action}. Must be one of: setup, add, delete, list'
+                    'error': f'Invalid action: {action}. Must be one of: setup, add, delete, list, clear, checkCompleted'
                 })
             }
         

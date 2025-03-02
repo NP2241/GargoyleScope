@@ -298,116 +298,141 @@ def send_error_notification(error_message: str, recipient: str = "neilpendyala@g
     except Exception as e:
         print(f"Failed to send error notification: {str(e)}")
 
-# Update main handler to include search and analysis
+def batch_entities(entities: list, batch_size: int = 10) -> list:
+    """Split list of entities into batches"""
+    return [entities[i:i + batch_size] for i in range(0, len(entities), batch_size)]
+
 def lambda_handler(event, context):
-    """Lambda handler for article analysis"""
+    """
+    Lambda handler for article analysis
+    
+    Args:
+        event (dict): Lambda event
+        context: Lambda context
+        
+    Required environment variables:
+        PARENT_ENTITY: Name of the parent entity (e.g., "Stanford")
+    """
     try:
-        # Check if this is a scheduled event
-        if event.get('source') == 'aws.events':
-            print("Running scheduled news alert...")
+        # Initialize DynamoDB client and Lambda client
+        dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+        lambda_client = boto3.client('lambda', region_name=os.getenv('REGION', 'us-west-1'))
+        
+        # Get parent entity from environment or event
+        parent_entity = event.get('parent_entity') or os.getenv('PARENT_ENTITY')
+        if not parent_entity:
+            raise Exception("parent_entity must be provided in event or environment variables")
             
+        table_name = f"{parent_entity}_TrackedEntities"
+        
+        # Check if table exists and create if needed
+        try:
+            dynamodb.describe_table(TableName=table_name)
+            print(f"✅ Table {table_name} exists")
+        except dynamodb.exceptions.ResourceNotFoundException:
+            print(f"Table {table_name} not found. Creating...")
+            # Invoke handleTable lambda to create table
             try:
-                # Get entities from environment
-                entities = [
-                    'Rangoon Ruby',
-                    'Nordstrom',
-                    'Vance Brown Construction'
-                ]
-                parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
+                response = lambda_client.invoke(
+                    FunctionName='handleTable',
+                    InvocationType='RequestResponse',
+                    Payload=json.dumps({
+                        'action': 'setup',
+                        'parent_entity': parent_entity
+                    })
+                )
                 
-                # Store results for all entities
-                all_entity_articles = {}
+                # Check for lambda execution errors
+                if response.get('FunctionError'):
+                    error_details = json.loads(response['Payload'].read())
+                    raise Exception(f"Table creation lambda failed: {error_details}")
                 
-                # Run analysis for each entity
-                for entity in entities:
-                    print(f"\nAnalyzing articles for: {entity}")
-                    # Run the analysis
-                    from checkArticles import search_news_articles
-                    search_results = search_news_articles(entity)
-                    analyzed_articles = analyze_and_format_articles(search_results, entity, parent_entity)
-                    all_entity_articles[entity] = analyzed_articles
+                # Parse response
+                response_payload = json.loads(response['Payload'].read())
                 
-                # Generate combined report
-                html_report = generate_html_report(all_entity_articles, entities)
+                # Check response status
+                if response_payload.get('statusCode') != 200:
+                    error_body = json.loads(response_payload.get('body', '{}'))
+                    raise Exception(f"Failed to create table: {error_body.get('error', 'Unknown error')}")
                 
-                # Send email
-                if send_email_report(html_report):
-                    return {
-                        'statusCode': 200,
-                        'body': 'Scheduled alert completed successfully'
-                    }
-                else:
-                    raise Exception("Failed to send email report")
+                # Verify table was created
+                try:
+                    dynamodb.describe_table(TableName=table_name)
+                    print(f"✅ Verified table {table_name} was created successfully")
+                except dynamodb.exceptions.ResourceNotFoundException:
+                    raise Exception(f"Table {table_name} was not created successfully")
                     
             except Exception as e:
-                error_msg = f"Failed to generate or send daily alert:\n{str(e)}"
-                print(error_msg)
-                send_error_notification(error_msg)
-                raise  # Re-raise to mark Lambda as failed
-        
-        # Handle web requests
-        elif event.get('path') == '/articlescan.html':
-            # Get entities from environment variables or use defaults
-            entity = os.getenv('SEARCH_ENTITY', 'Rangoon Ruby')
-            parent_entity = os.getenv('PARENT_ENTITY', 'stanford')
+                print(f"❌ Error creating table: {str(e)}")
+                raise Exception(f"Failed to create required table: {str(e)}")
+
+        # Get list of entities from table
+        try:
+            response = lambda_client.invoke(
+                FunctionName='handleTable',
+                InvocationType='RequestResponse',
+                Payload=json.dumps({
+                    'action': 'list',
+                    'parent_entity': parent_entity
+                })
+            )
             
-            print(f"\nSearching for: {entity}")
-            print(f"Parent entity: {parent_entity}")
+            # Check for lambda execution errors
+            if response.get('FunctionError'):
+                error_details = json.loads(response['Payload'].read())
+                raise Exception(f"Failed to list entities: {error_details}")
             
-            # Search for recent articles
-            search_results = search_news_articles(entity)
+            # Parse response
+            response_payload = json.loads(response['Payload'].read())
+            if response_payload.get('statusCode') != 200:
+                error_body = json.loads(response_payload.get('body', '{}'))
+                raise Exception(f"Failed to list entities: {error_body.get('error', 'Unknown error')}")
             
-            # Analyze search results and build HTML
-            analyzed_articles = []
-            for article in search_results['articles']:
-                text_to_analyze = f"{article['title']} {article['snippet']}"
-                analysis = analyze_entity(text_to_analyze, entity, parent_entity, advanced_response=False)
-                analyzed_articles.append((article, analysis))
+            # Extract entities from response
+            response_body = json.loads(response_payload.get('body', '{}'))
+            entities = response_body.get('entities', [])
             
-            # Sort articles - important ones first
-            analyzed_articles.sort(key=lambda x: (not x[1].get('important', False)))
+            if not entities:
+                raise Exception(f"No entities found in table {table_name}")
             
-            # Build HTML
-            all_analyses_html = ""
-            for article, analysis in analyzed_articles:
-                importance_class = "important" if analysis.get('important', False) else ""
-                article_html = f"""
-                <div class="article-box {importance_class}">
-                    <h3>Article: {article['title']}</h3>
-                    <p><strong>URL:</strong> <a href="{article['url']}" target="_blank">{article['url']}</a></p>
-                    <p><strong>Sentiment:</strong> {analysis['sentiment']}</p>
-                    <p><strong>Important:</strong> {"Yes" if analysis.get('important', False) else "No"}</p>
-                    <p><strong>Summary:</strong> {analysis['summary']}</p>
-                    <div class="article-content">
-                        {analysis['highlighted_text']}
-                    </div>
-                </div>
-                """
-                all_analyses_html += article_html
+            print(f"Found {len(entities)} entities to process")
             
-            # Read and update template
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            template = read_file(os.path.join(base_dir, 'templates', 'articlescan.html'))
+            # Split entities into batches of 10
+            batches = batch_entities(entities)
+            print(f"Split into {len(batches)} batches")
             
-            # Replace template placeholders
-            html = template.replace('{{article_content}}', all_analyses_html)
-            html = html.replace('{{relevant_sentences}}', '')
-            html = html.replace('{{sentiment}}', 'News Alerter')
-            html = html.replace('{{summary}}', f'Analysis of {len(search_results["articles"])} recent articles about {entity}')
-        
-        return {
-            'statusCode': 200,
-                'headers': {'Content-Type': 'text/html'},
-                'body': html
+            # Process each batch with worker lambda
+            for i, batch in enumerate(batches, 1):
+                print(f"Processing batch {i} with {len(batch)} entities...")
+                try:
+                    worker_response = lambda_client.invoke(
+                        FunctionName='worker',
+                        InvocationType='Event',  # Asynchronous invocation
+                        Payload=json.dumps({
+                            'parent_entity': parent_entity,
+                            'entities': batch
+                        })
+                    )
+                    print(f"✅ Triggered worker lambda for batch {i}")
+                except Exception as e:
+                    print(f"❌ Failed to invoke worker lambda for batch {i}: {str(e)}")
+                    raise
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': f'Successfully triggered {len(batches)} worker lambdas',
+                    'total_entities': len(entities),
+                    'batch_count': len(batches)
+                })
             }
-        
-        # Default return for unmatched events
-    return {
-        'statusCode': 404,
-        'body': 'Not Found'
-    }
-    
+            
+        except Exception as e:
+            print(f"❌ Error processing entities: {str(e)}")
+            raise
+
     except Exception as e:
+        print(f"Error in lambda_handler: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
