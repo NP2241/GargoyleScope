@@ -487,16 +487,9 @@ def check_completed(parent_entity: str):
 def lambda_handler(event, context):
     """
     Lambda handler for managing DynamoDB table operations
-    
-    Expected event format:
-    {
-        "action": "setup|add|delete|list|clear|checkCompleted",
-        "parent_entity": "Stanford",
-        "entities": ["Entity1", "Entity2"]  # Required for add/delete actions
-    }
     """
     try:
-        # Get action and parent_entity from event
+        # Regular API actions continue below...
         action = event.get('action')
         parent_entity = event.get('parent_entity')
         
@@ -510,7 +503,52 @@ def lambda_handler(event, context):
             }
         
         # Execute requested action
-        if action == "setup":
+        if action == "processEmail":
+            # Get email details
+            email_data = event.get('email', {})
+            sender = email_data.get('from')
+            content = email_data.get('content')
+            
+            # Verify sender is authorized
+            authorized_emails = [
+                "neilpendyala@gmail.com",  # Default from master.py
+                os.getenv('REPORT_EMAIL')   # From environment if set
+            ]
+            
+            if not sender or sender not in authorized_emails:
+                return {
+                    'statusCode': 403,
+                    'body': json.dumps({
+                        'error': 'Unauthorized email sender'
+                    })
+                }
+            
+            # Parse commands from email
+            commands = parse_email_commands(content)
+            
+            # Process ADD commands
+            add_response = None
+            if commands['add']:
+                add_response = add_entities(parent_entity, commands['add'])
+            
+            # Process DELETE commands
+            delete_response = None
+            if commands['delete']:
+                delete_response = delete_entities(parent_entity, commands['delete'])
+            
+            # Prepare response
+            response = {
+                'message': 'Email processed successfully',
+                'add_results': add_response,
+                'delete_results': delete_response
+            }
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps(response)
+            }
+            
+        elif action == "setup":
             response = setup(parent_entity)
         elif action == "add":
             entities = event.get('entities', [])

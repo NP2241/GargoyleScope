@@ -172,6 +172,87 @@ def batch_entities(entities: list, batch_size: int = 10) -> list:
     """Split list of entities into batches"""
     return [entities[i:i + batch_size] for i in range(0, len(entities), batch_size)]
 
+def setup_email_list(parent_entity: str, initial_emails: list = None):
+    """
+    Create and initialize email list table for a parent entity
+    
+    Args:
+        parent_entity (str): Name of the parent entity (e.g., "Stanford")
+        initial_emails (list): Initial list of emails (defaults to ["neilpendyala@gmail.com"])
+    """
+    if initial_emails is None:
+        initial_emails = ["neilpendyala@gmail.com"]
+        
+    # Initialize DynamoDB client
+    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    
+    table_name = "EmailList"
+    
+    try:
+        # Create table if it doesn't exist
+        try:
+            dynamodb.describe_table(TableName=table_name)
+        except dynamodb.exceptions.ResourceNotFoundException:
+            response = dynamodb.create_table(
+                TableName=table_name,
+                AttributeDefinitions=[
+                    {
+                        'AttributeName': 'parent_entity',
+                        'AttributeType': 'S'
+                    }
+                ],
+                KeySchema=[
+                    {
+                        'AttributeName': 'parent_entity',
+                        'KeyType': 'HASH'
+                    }
+                ],
+                BillingMode='PAY_PER_REQUEST'
+            )
+            print(f"Creating email list table...")
+            dynamodb.get_waiter('table_exists').wait(TableName=table_name)
+            
+        # Get table resource
+        table = dynamodb_resource.Table(table_name)
+        
+        # Add/Update email list for parent entity
+        table.put_item(
+            Item={
+                'parent_entity': parent_entity,
+                'email_list': initial_emails
+            }
+        )
+        
+        print(f"✅ Email list initialized for {parent_entity}")
+        
+    except Exception as e:
+        print(f"Error setting up email list: {str(e)}")
+        raise
+
+def get_email_list(parent_entity: str) -> list:
+    """Get list of emails for a parent entity"""
+    try:
+        dynamodb = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+        table = dynamodb.Table('EmailList')
+        
+        response = table.get_item(
+            Key={
+                'parent_entity': parent_entity
+            }
+        )
+        
+        if 'Item' not in response:
+            # Initialize if not found
+            setup_email_list(parent_entity)
+            return ["neilpendyala@gmail.com"]
+            
+        return response['Item']['email_list']
+        
+    except Exception as e:
+        print(f"Error getting email list: {str(e)}")
+        return ["neilpendyala@gmail.com"]  # Fallback to default
+
 def lambda_handler(event, context):
     """Lambda handler for article analysis"""
     try:
@@ -327,12 +408,14 @@ def lambda_handler(event, context):
             html_report = generate_html_report(entities_with_analysis)
             
             if html_report:
-                send_email_report(
-                    html_report,
-                    subject=f"News Alert Report - {parent_entity}",
-                    recipient=os.getenv('REPORT_EMAIL', 'neilpendyala@gmail.com')
-                )
-                print("✅ Report sent successfully")
+                email_list = get_email_list(parent_entity)
+                for recipient in email_list:
+                    send_email_report(
+                        html_report,
+                        subject=f"News Alert Report - {parent_entity}",
+                        recipient=recipient
+                    )
+                print("✅ Report sent successfully to all recipients")
             
             return {
                 'statusCode': 200,
