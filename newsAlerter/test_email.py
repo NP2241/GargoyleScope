@@ -1,4 +1,4 @@
-from app import generate_html_report
+from newsAlerter.master import generate_html_report
 import webbrowser
 import os
 import sys

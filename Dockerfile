@@ -35,4 +35,4 @@ RUN python3.9 -c "import nltk; nltk.download('punkt', download_dir='${LAMBDA_TAS
 # Copy application code
 COPY newsAlerter ${LAMBDA_TASK_ROOT}/
 
-CMD ["app.lambda_handler"] 
+CMD ["newsAlerter.master.lambda_handler"] 

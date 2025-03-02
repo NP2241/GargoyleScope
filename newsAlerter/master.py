@@ -10,96 +10,6 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-def calculate_cost(input_tokens: int, output_tokens: int, model: str = "gpt-4o") -> float:
-    """Calculate cost based on OpenAI's pricing"""
-    if model == "gpt-4o":
-        input_cost_per_1m = 2.50   # $2.50 per 1M input tokens
-        output_cost_per_1m = 10.00  # $10.00 per 1M output tokens
-        
-        input_cost = (input_tokens * input_cost_per_1m) / 1_000_000  # Convert to per-token cost
-        output_cost = (output_tokens * output_cost_per_1m) / 1_000_000
-        
-        return input_cost + output_cost
-    else:
-        return 0.0  # Add other model pricing if needed
-
-def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", advanced_response: bool = True):
-    """Analyze article text and return analysis with highlighted HTML"""
-    try:
-        # Set API key and model
-        openai.api_key = os.getenv('OPENAI_API_KEY')
-        model = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-08-06')
-        
-        # Create prompt based on response type
-        if advanced_response:
-            prompt = f"""First determine if this article is actually about {entity}. Then analyze and return a JSON object with:
-            1. is_relevant: boolean, true if article is specifically about {entity} (not just mentions the words)
-            2. sentiment: overall sentiment (positive/negative/neutral)
-            3. summary: 2-3 sentence summary
-            4. relevant_sentences: array of relevant quotes
-            5. highlighted_text: HTML version with <span class="positive"> or <span class="negative"> tags
-            6. important: boolean, true ONLY if (article is relevant AND (mentions lawsuits OR mentions {parent_entity}))
-
-            Example of irrelevant: If {entity} is "Vance Brown Construction" but article just happens to mention someone named "Vance" and "Brown" separately, mark is_relevant as false.
-            """
-        else:
-            prompt = f"""First determine if this article is actually about {entity}. Then analyze and return a JSON object with:
-            1. is_relevant: boolean, true if article is specifically about {entity} (not just mentions the words)
-            2. sentiment: overall sentiment (positive/negative/neutral)
-            3. summary: 2-3 sentence summary
-            4. highlighted_text: original text with positive/negative phrases in HTML spans
-            5. important: boolean, true ONLY if (article is relevant AND (mentions lawsuits OR mentions {parent_entity}))
-
-            Example of irrelevant: If {entity} is "Vance Brown Construction" but article just happens to mention someone named "Vance" and "Brown" separately, mark is_relevant as false.
-            """
-
-        # Debug print
-        print(f"\nAnalyzing text for {entity}:")
-        print(f"Parent entity: {parent_entity}")
-        print(f"Text snippet: {text[:200]}...")
-
-        # Get response from OpenAI
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that analyzes articles and returns JSON."},
-                {"role": "user", "content": f"Article text: {text}\n\nPrompt: {prompt}"}
-            ]
-        )
-
-        # Parse JSON response
-        try:
-            content = response.choices[0].message.content.replace('```json', '').replace('```', '').strip()
-            analysis = json.loads(content)
-            
-            # Debug prints
-            print(f"Relevant: {analysis.get('is_relevant', False)}")
-            if analysis.get('important', False):
-                print(f"Important: {analysis['important']}")
-                print("Reason: Article is relevant AND (mentions lawsuit or parent entity)")
-            
-            return analysis
-            
-        except json.JSONDecodeError as e:
-            print(f"JSON Parse Error: {str(e)}")
-            return {
-                'is_relevant': False,
-                'highlighted_text': "Error parsing response",
-                'sentiment': "Analysis failed",
-                'summary': "Analysis failed",
-                'important': False
-            }
-            
-    except Exception as e:
-        print(f"Error in analyze_entity: {str(e)}")
-        return {
-            'is_relevant': False,
-            'highlighted_text': f"Error analyzing article: {str(e)}",
-            'sentiment': "Analysis failed",
-            'summary': "Analysis failed",
-            'important': False
-        }
-
 def read_file(file_path):
     """Read and return file contents"""
     try:
@@ -107,28 +17,6 @@ def read_file(file_path):
             return file.read()
     except Exception as e:
         return f"Error reading file: {str(e)}"
-
-def analyze_search_results(entity: str, search_results: dict):
-    """Analyze search results for sentiment and relevance"""
-    print(f"\nAnalyzing search results for {entity}:")
-    print("-" * 50)
-
-    for article in search_results['articles']:
-        print(f"\nAnalyzing article: {article['title']}")
-        print("-" * 30)
-        
-        # Combine title and snippet for analysis
-        text_to_analyze = f"{article['title']} {article['snippet']}"
-        
-        # Analyze the article text
-        analysis = analyze_entity(text_to_analyze, entity, advanced_response=False)
-        
-        # Print analysis
-        print(f"Relevance: {'Relevant' if entity.lower() in text_to_analyze.lower() else 'Not directly relevant'}")
-        print(f"Sentiment: {analysis['sentiment']}")
-        print(f"Summary: {analysis['summary']}")
-        print(f"URL: {article['url']}")
-        print()
 
 def send_email_report(html_content: str, subject: str = "News Alert", recipient: str = "neilpendyala@gmail.com"):
     """Send HTML report via SES"""
@@ -212,7 +100,7 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     if total_important == 0:
         # No important articles case
         stats_message = (
-            f"We found <strong style=\"color: {colors['primary']}\">no</strong> important articles "
+            f"We found no important articles "
             f"across all <strong style=\"color: {colors['text']}\">{total_entities}</strong> of your entities."
         )
     else:
@@ -367,18 +255,6 @@ def generate_html_report(all_entity_articles, entities: list) -> str:
     
     return html
 
-def analyze_and_format_articles(search_results: dict, entity: str, parent_entity: str):
-    """Analyze articles and format for report"""
-    analyzed_articles = []
-    for article in search_results['articles']:
-        text_to_analyze = f"{article['title']} {article['snippet']}"
-        analysis = analyze_entity(text_to_analyze, entity, parent_entity, advanced_response=False)
-        analyzed_articles.append((article, analysis))
-    
-    # Sort articles - important ones first
-    analyzed_articles.sort(key=lambda x: (not x[1].get('important', False)))
-    return analyzed_articles
-
 def send_error_notification(error_message: str, recipient: str = "neilpendyala@gmail.com"):
     """Send error notification email"""
     try:
@@ -518,18 +394,18 @@ def lambda_handler(event, context):
             html = html.replace('{{relevant_sentences}}', '')
             html = html.replace('{{sentiment}}', 'News Alerter')
             html = html.replace('{{summary}}', f'Analysis of {len(search_results["articles"])} recent articles about {entity}')
-            
-            return {
-                'statusCode': 200,
+        
+        return {
+            'statusCode': 200,
                 'headers': {'Content-Type': 'text/html'},
                 'body': html
             }
         
         # Default return for unmatched events
-        return {
-            'statusCode': 404,
-            'body': 'Not Found'
-        }
+    return {
+        'statusCode': 404,
+        'body': 'Not Found'
+    }
     
     except Exception as e:
         return {
