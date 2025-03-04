@@ -2,15 +2,25 @@
 
 import os
 import json
-from dotenv import load_dotenv
 import openai
 import boto3
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import requests
 
-# Load environment variables
-load_dotenv()
+# Load credentials from env.json
+def load_credentials():
+    try:
+        with open('env.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # In Lambda, use environment variables
+        return {
+            'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
+            'GOOGLE_API_KEY': os.environ.get('GOOGLE_API_KEY'),
+            'GOOGLE_CSE_ID': os.environ.get('GOOGLE_CSE_ID'),
+            'REGION': os.environ.get('REGION', 'us-west-1')
+        }
 
 def search_news_articles(entity: str) -> dict:
     """
@@ -23,9 +33,10 @@ def search_news_articles(entity: str) -> dict:
         dict: Search results containing articles
     """
     try:
+        credentials = load_credentials()
         # Get API credentials
-        api_key = os.getenv('GOOGLE_API_KEY')
-        cse_id = os.getenv('GOOGLE_CSE_ID')
+        api_key = credentials.get('GOOGLE_API_KEY')
+        cse_id = credentials.get('GOOGLE_CSE_ID')
         
         if not api_key or not cse_id:
             raise Exception("Google API credentials not found in environment variables")

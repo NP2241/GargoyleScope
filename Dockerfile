@@ -10,8 +10,8 @@ LABEL org.opencontainers.image.title="GargoyleScope NLP Service" \
       version="1.0"
 
 # Set environment variables
-ENV PYTHONPATH="${LAMBDA_TASK_ROOT}"
-ENV NLTK_DATA=${LAMBDA_TASK_ROOT}/nltk_data
+ENV PYTHONPATH="/var/task"
+ENV NLTK_DATA=/var/task/nltk_data
 
 # Install dependencies
 RUN pip3 install --upgrade pip setuptools wheel
@@ -19,10 +19,8 @@ RUN pip3 install --upgrade pip setuptools wheel
 # Install core dependencies
 RUN pip3 install --no-cache-dir \
     nltk==3.8.1 \
-    python-dotenv==1.0.0 \
     requests==2.31.0 \
     boto3>=1.26.0 \
-    beautifulsoup4==4.12.3 \
     openai==0.28.0 \
     google-api-python-client
 
@@ -30,9 +28,21 @@ RUN pip3 install --no-cache-dir \
 RUN pip freeze | grep openai
 
 # Download NLTK data
-RUN python3.9 -c "import nltk; nltk.download('punkt', download_dir='${LAMBDA_TASK_ROOT}/nltk_data')"
+RUN python3.9 -c "import nltk; nltk.download('punkt', download_dir='/var/task/nltk_data')"
 
-# Copy application code
-COPY newsAlerter ${LAMBDA_TASK_ROOT}/
+# Create package directory
+WORKDIR /var/task
 
-CMD ["newsAlerter.master.lambda_handler"] 
+# Copy files to root
+COPY newsAlerter/*.py ./
+COPY newsAlerter/email_preview.html ./
+
+# Create entry point script
+COPY <<'EOF' /var/task/lambda_function.py
+from master import lambda_handler
+
+def handler(event, context):
+    return lambda_handler(event, context)
+EOF
+
+CMD ["lambda_function.handler"] 

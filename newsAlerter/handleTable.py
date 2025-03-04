@@ -1,10 +1,17 @@
 import boto3
 import os
 import json
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load credentials from env.json
+def load_credentials():
+    try:
+        with open('env.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # In Lambda, use environment variables
+        return {
+            'REGION': os.environ.get('REGION', 'us-west-1')
+        }
 
 def setup(parent_entity: str):
     """
@@ -19,7 +26,8 @@ def setup(parent_entity: str):
         - completed (Boolean) - Processing status flag
     """
     # Initialize DynamoDB client
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
@@ -57,7 +65,7 @@ def setup(parent_entity: str):
         dynamodb.get_waiter('table_exists').wait(TableName=table_name)
         
         # Verify table structure by adding a test item and then removing it
-        dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+        dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
         table = dynamodb_resource.Table(table_name)
         
         # Add test item to verify schema
@@ -103,8 +111,9 @@ def add_entities(parent_entity: str, entities: list):
         Exception: If table doesn't exist or other errors occur
     """
     # Initialize DynamoDB client and resource
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
@@ -173,8 +182,9 @@ def delete_entities(parent_entity: str, entities: list):
         Exception: If table doesn't exist or other errors occur
     """
     # Initialize DynamoDB client and resource
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
@@ -264,8 +274,9 @@ def list_entities(parent_entity: str, include_analysis: bool = False):
         Exception: If table doesn't exist or other errors occur
     """
     # Initialize DynamoDB client and resource
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
@@ -338,8 +349,9 @@ def clear_attributes(parent_entity: str):
         Exception: If table doesn't exist or other errors occur
     """
     # Initialize DynamoDB client and resource
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
@@ -425,8 +437,9 @@ def check_completed(parent_entity: str):
         Exception: If table doesn't exist or other errors occur
     """
     # Initialize DynamoDB client and resource
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    credentials = load_credentials()
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"

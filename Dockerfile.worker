@@ -1,0 +1,32 @@
+FROM public.ecr.aws/lambda/python:3.9-arm64
+
+# Set environment variables
+ENV PYTHONPATH="/var/task"
+
+WORKDIR /var/task
+
+# Install dependencies
+RUN pip3 install --upgrade pip setuptools wheel
+RUN pip3 install --no-cache-dir --target /var/task \
+    openai==0.28.0 \
+    google-api-python-client \
+    beautifulsoup4==4.12.3 \
+    boto3>=1.26.0 \
+    requests==2.31.0
+
+COPY newsAlerter/worker.py ./
+COPY newsAlerter/email_preview.html ./
+COPY newsAlerter/master.py ./
+
+COPY <<'EOF' /var/task/lambda_function.py
+from worker import process_entity
+
+def handler(event, context):
+    try:
+        return process_entity(event.get('entity'), event.get('parent_entity'), event.get('table'))
+    except Exception as e:
+        print(f"Error in handler: {str(e)}")
+        raise
+EOF
+
+CMD ["lambda_function.handler"] 

@@ -58,3 +58,7 @@ env.local.json
 env.json
 env.*.json
 deploy.sh
+
+# New additions
+*.pyc
+response.json

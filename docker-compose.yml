@@ -28,6 +28,28 @@ services:
     tmpfs:
       - /swap:size=8G
 
+  newsalerter:
+    build: .
+    image: newsalerterfunction:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=us-west-1
+      - LAMBDA_HANDLER=newsAlerter.master.lambda_handler
+    volumes:
+      - .:/var/task
+
+  emailcontrols:
+    build: .
+    image: newsalerterfunction:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=us-west-1
+      - LAMBDA_HANDLER=newsAlerter.emailControls.lambda_handler
+    volumes:
+      - .:/var/task
+
 volumes:
   model-cache:
   model-offload:  # Add volume for model offloading 

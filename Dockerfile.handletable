@@ -1,0 +1,28 @@
+FROM public.ecr.aws/lambda/python:3.9-arm64
+
+# Set environment variables
+ENV PYTHONPATH="/var/task"
+
+WORKDIR /var/task
+
+# Install dependencies
+RUN pip3 install --upgrade pip setuptools wheel
+RUN pip3 install --no-cache-dir --target /var/task \
+    boto3>=1.26.0 \
+    requests==2.31.0
+
+COPY newsAlerter/handleTable.py ./
+COPY newsAlerter/master.py ./
+
+COPY <<'EOF' /var/task/lambda_function.py
+from handleTable import lambda_handler
+
+def handler(event, context):
+    try:
+        return lambda_handler(event, context)
+    except Exception as e:
+        print(f"Error in handler: {str(e)}")
+        raise
+EOF
+
+CMD ["lambda_function.handler"] 

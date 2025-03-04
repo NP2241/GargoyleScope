@@ -1,6 +1,5 @@
 import os
 import json
-from dotenv import load_dotenv
 import openai
 import boto3
 from email.mime.text import MIMEText
@@ -8,12 +7,24 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import time
 
-# Load environment variables
-load_dotenv()
+# Load credentials from env.json
+def load_credentials():
+    try:
+        with open('env.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # In Lambda, use environment variables
+        return {
+            'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
+            'GOOGLE_API_KEY': os.environ.get('GOOGLE_API_KEY'),
+            'GOOGLE_CSE_ID': os.environ.get('GOOGLE_CSE_ID'),
+            'REGION': os.environ.get('REGION', 'us-west-1')
+        }
 
 def send_email_report(html_content: str, subject: str = "News Alert", recipient: str = "neilpendyala@gmail.com"):
     """Send HTML report via SES"""
     try:
+        credentials = load_credentials()
         # Check content size
         content_size_kb = len(html_content.encode('utf-8')) / 1024
         if content_size_kb > 100:
@@ -22,7 +33,7 @@ def send_email_report(html_content: str, subject: str = "News Alert", recipient:
                 raise Exception(f"Email content too large: {content_size_kb:.1f}KB (max 10MB)")
         
         # Create SES client
-        ses = boto3.client('ses', region_name=os.getenv('REGION', 'us-west-1'))
+        ses = boto3.client('ses', region_name=credentials.get('REGION', 'us-west-1'))
         
         # Create message container
         msg = MIMEMultipart('alternative')
@@ -308,126 +319,104 @@ def lambda_handler(event, context):
                 print(f"❌ Error creating table: {str(e)}")
                 raise Exception(f"Failed to create required table: {str(e)}")
 
-        # Get list of entities from table
-        try:
-            response = lambda_client.invoke(
+        # Get entities from HandleTable Lambda
+        response = lambda_client.invoke(
+            FunctionName='handleTable',
+            InvocationType='RequestResponse',
+            Payload=json.dumps({'action': 'get_entities'})
+        )
+        entities = json.loads(response['Payload'].read())
+        
+        if not entities:
+            raise Exception(f"No entities found in table {table_name}")
+        
+        print(f"Found {len(entities)} entities to process")
+        
+        # Split entities into batches of 10
+        batches = batch_entities(entities)
+        print(f"Split into {len(batches)} batches")
+        
+        # Process each batch with worker lambda
+        for i, batch in enumerate(batches, 1):
+            print(f"Processing batch {i} with {len(batch)} entities...")
+            try:
+                worker_response = lambda_client.invoke(
+                    FunctionName='worker',
+                    InvocationType='Event',  # Asynchronous invocation
+                    Payload=json.dumps({
+                        'parent_entity': parent_entity,
+                        'entities': batch
+                    })
+                )
+                print(f"✅ Triggered worker lambda for batch {i}")
+            except Exception as e:
+                print(f"❌ Failed to invoke worker lambda for batch {i}: {str(e)}")
+                raise
+        
+        # Wait for all entities to be processed
+        max_retries = 30  # 5 minutes (10 second intervals)
+        for attempt in range(max_retries):
+            # Check completion status
+            completion_response = lambda_client.invoke(
                 FunctionName='handleTable',
                 InvocationType='RequestResponse',
                 Payload=json.dumps({
-                    'action': 'list',
+                    'action': 'checkCompleted',
                     'parent_entity': parent_entity
                 })
             )
             
-            # Check for lambda execution errors
-            if response.get('FunctionError'):
-                error_details = json.loads(response['Payload'].read())
-                raise Exception(f"Failed to list entities: {error_details}")
-            
-            # Parse response
-            response_payload = json.loads(response['Payload'].read())
-            if response_payload.get('statusCode') != 200:
-                error_body = json.loads(response_payload.get('body', '{}'))
-                raise Exception(f"Failed to list entities: {error_body.get('error', 'Unknown error')}")
-            
-            # Extract entities from response
-            response_body = json.loads(response_payload.get('body', '{}'))
-            entities = response_body.get('entities', [])
-            
-            if not entities:
-                raise Exception(f"No entities found in table {table_name}")
-            
-            print(f"Found {len(entities)} entities to process")
-            
-            # Split entities into batches of 10
-            batches = batch_entities(entities)
-            print(f"Split into {len(batches)} batches")
-            
-            # Process each batch with worker lambda
-            for i, batch in enumerate(batches, 1):
-                print(f"Processing batch {i} with {len(batch)} entities...")
-                try:
-                    worker_response = lambda_client.invoke(
-                        FunctionName='worker',
-                        InvocationType='Event',  # Asynchronous invocation
-                        Payload=json.dumps({
-                            'parent_entity': parent_entity,
-                            'entities': batch
-                        })
-                    )
-                    print(f"✅ Triggered worker lambda for batch {i}")
-                except Exception as e:
-                    print(f"❌ Failed to invoke worker lambda for batch {i}: {str(e)}")
-                    raise
-            
-            # Wait for all entities to be processed
-            max_retries = 30  # 5 minutes (10 second intervals)
-            for attempt in range(max_retries):
-                # Check completion status
-                completion_response = lambda_client.invoke(
-                    FunctionName='handleTable',
-                    InvocationType='RequestResponse',
-                    Payload=json.dumps({
-                        'action': 'checkCompleted',
-                        'parent_entity': parent_entity
-                    })
-                )
+            completion_data = json.loads(completion_response['Payload'].read())
+            if completion_data['statusCode'] != 200:
+                raise Exception(f"Error checking completion status: {completion_data.get('body')}")
                 
-                completion_data = json.loads(completion_response['Payload'].read())
-                if completion_data['statusCode'] != 200:
-                    raise Exception(f"Error checking completion status: {completion_data.get('body')}")
-                    
-                completion_body = json.loads(completion_data['body'])
-                if completion_body['all_completed']:
-                    print("✅ All entities have been processed")
-                    break
-                    
-                if attempt == max_retries - 1:
-                    raise Exception("Timeout waiting for entity processing to complete")
-                    
-                print(f"Waiting for processing to complete... ({completion_body['completed_entities']}/{completion_body['total_entities']} done)")
-                time.sleep(10)
-            
-            # Get full analysis results
-            list_response = lambda_client.invoke(
-                FunctionName='handleTable',
-                InvocationType='RequestResponse',
-                Payload=json.dumps({
-                    'action': 'list',
-                    'parent_entity': parent_entity,
-                    'include_analysis': True
-                })
-            )
-            
-            list_data = json.loads(list_response['Payload'].read())
-            if list_data['statusCode'] != 200:
-                raise Exception(f"Error getting analysis results: {list_data.get('body')}")
-            
-            # Generate and send report
-            entities_with_analysis = json.loads(list_data['body'])['entities']
-            html_report = generate_html_report(entities_with_analysis)
-            
-            if html_report:
-                email_list = get_email_list(parent_entity)
-                for recipient in email_list:
-                    send_email_report(
-                        html_report,
-                        subject=f"News Alert Report - {parent_entity}",
-                        recipient=recipient
-                    )
-                print("✅ Report sent successfully to all recipients")
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'message': 'Analysis complete and report sent'
-                })
-            }
-            
-        except Exception as e:
-            print(f"❌ Error processing entities: {str(e)}")
-            raise
-
+            completion_body = json.loads(completion_data['body'])
+            if completion_body['all_completed']:
+                print("✅ All entities have been processed")
+                break
+                
+            if attempt == max_retries - 1:
+                raise Exception("Timeout waiting for entity processing to complete")
+                
+            print(f"Waiting for processing to complete... ({completion_body['completed_entities']}/{completion_body['total_entities']} done)")
+            time.sleep(10)
+        
+        # Get full analysis results
+        list_response = lambda_client.invoke(
+            FunctionName='handleTable',
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'action': 'list',
+                'parent_entity': parent_entity,
+                'include_analysis': True
+            })
+        )
+        
+        list_data = json.loads(list_response['Payload'].read())
+        if list_data['statusCode'] != 200:
+            raise Exception(f"Error getting analysis results: {list_data.get('body')}")
+        
+        # Generate and send report
+        entities_with_analysis = json.loads(list_data['body'])['entities']
+        html_report = generate_html_report(entities_with_analysis)
+        
+        if html_report:
+            email_list = get_email_list(parent_entity)
+            for recipient in email_list:
+                send_email_report(
+                    html_report,
+                    subject=f"News Alert Report - {parent_entity}",
+                    recipient=recipient
+                )
+            print("✅ Report sent successfully to all recipients")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Analysis complete and report sent'
+            })
+        }
+        
     except Exception as e:
         print(f"Error in lambda_handler: {str(e)}")
         error_msg = str(e)

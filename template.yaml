@@ -7,20 +7,20 @@ Parameters:
     Description: API Key for OpenAI
   GoogleApiKey:
     Type: String
-    Description: API Key for Google
+    Description: API Key for Google Custom Search
   GoogleCseId:
     Type: String
     Description: Google Custom Search Engine ID
   AwsRegion:
     Type: String
-    Default: us-west-1
+    Description: AWS Region
   AwsAccountId:
     Type: String
     Description: AWS Account ID
 
 Resources:
   NewsAlerterFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: newsAlerter
       PackageType: Image
@@ -36,8 +36,62 @@ Resources:
           OPENAI_API_KEY: !Ref OpenAiApiKey
           GOOGLE_API_KEY: !Ref GoogleApiKey
           GOOGLE_CSE_ID: !Ref GoogleCseId
+          AWS_ACCOUNT_ID: !Ref AwsAccountId
       Code:
-        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:python3.9-v21
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:latest
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: worker
+      PackageType: Image
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures: 
+        - arm64
+      MemorySize: 2048
+      Timeout: 240
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          GOOGLE_API_KEY: !Ref GoogleApiKey
+          GOOGLE_CSE_ID: !Ref GoogleCseId
+          REGION: !Ref AwsRegion
+          AWS_ACCOUNT_ID: !Ref AwsAccountId
+      Code:
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/workerfunction:latest
+
+  HandleTableFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: handleTable
+      PackageType: Image
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures: 
+        - arm64
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          REGION: !Ref AwsRegion
+      Code:
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/handletablefunction:latest
+
+  EmailControlsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: emailControls
+      PackageType: Image
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures: 
+        - arm64
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          REGION: !Ref AwsRegion
+          AWS_ACCOUNT_ID: !Ref AwsAccountId
+      Code:
+        ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/emailcontrolsfunction:latest
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -61,6 +115,10 @@ Resources:
                 Action:
                   - ses:SendEmail
                   - ses:SendRawEmail
+                  - s3:GetObject
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                  - lambda:InvokeFunction
                 Resource: '*'
 
   DailyNewsAlert:
