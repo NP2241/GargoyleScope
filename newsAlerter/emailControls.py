@@ -175,18 +175,20 @@ def send_list_email(sender: str, original_message: email.message.EmailMessage, e
     except Exception as e:
         print(f"Error sending list email: {str(e)}")
 
-def lambda_handler(event, context):
-    """
-    Process incoming emails from S3 (triggered by SES)
-    Only processes emails from authorized senders with valid commands
-    """
+def process_email(event, context):
     try:
+        credentials = load_credentials()
+        # Initialize S3 client
+        s3 = boto3.client('s3', region_name=credentials.get('REGION', 'us-west-1'))
+
+        # Initialize Lambda client
+        lambda_client = boto3.client('lambda', region_name=credentials.get('REGION', 'us-west-1'))
+
         # Get S3 info from event
         bucket = event['Records'][0]['s3']['bucket']['name']
         key = event['Records'][0]['s3']['object']['key']
         
         # Get email from S3
-        s3 = boto3.client('s3')
         email_obj = s3.get_object(Bucket=bucket, Key=key)
         email_content = email_obj['Body'].read().decode('utf-8')
         
@@ -228,7 +230,6 @@ def lambda_handler(event, context):
             return
             
         # Call handleTable lambda to process commands
-        lambda_client = boto3.client('lambda')
         
         # Process ADD/DELETE commands and send confirmation if needed
         add_response = None

@@ -2,7 +2,7 @@
 
 import os
 import json
-import openai
+from openai import OpenAI
 import boto3
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
@@ -91,8 +91,9 @@ def search_news_articles(entity: str) -> dict:
 def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", advanced_response: bool = True):
     """Analyze article text and return analysis with highlighted HTML"""
     try:
-        # Set API key and model
-        openai.api_key = os.getenv('OPENAI_API_KEY')
+        credentials = load_credentials()
+        # Initialize OpenAI client
+        client = OpenAI(api_key=credentials.get('OPENAI_API_KEY'))
         model = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-08-06')
         
         # Create prompt based on response type
@@ -115,7 +116,7 @@ def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", adva
             """
 
         # Get response from OpenAI
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that analyzes articles and returns JSON."},
@@ -149,7 +150,7 @@ def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", adva
             'important': False
         }
 
-def process_entity(entity: str, parent_entity: str, table) -> dict:
+def process_entity(entity: str, parent_entity: str, table: str = None) -> dict:
     """
     Process a single entity: search articles, analyze them, and update DynamoDB
     
@@ -163,6 +164,11 @@ def process_entity(entity: str, parent_entity: str, table) -> dict:
     """
     try:
         print(f"\nProcessing entity: {entity}")
+        
+        credentials = load_credentials()
+        # Initialize clients
+        dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+        table = dynamodb.Table(f"{parent_entity}_TrackedEntities")
         
         # Search for articles
         search_results = search_news_articles(entity)

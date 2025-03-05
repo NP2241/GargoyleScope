@@ -20,7 +20,8 @@ Parameters:
 
 Resources:
   NewsAlerterFunction:
-    Type: AWS::Serverless::Function
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaExecutionRole
     Properties:
       FunctionName: newsAlerter
       PackageType: Image
@@ -41,7 +42,8 @@ Resources:
         ImageUri: !Sub ${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com/newsalerterfunction:latest
 
   WorkerFunction:
-    Type: AWS::Serverless::Function
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaExecutionRole
     Properties:
       FunctionName: worker
       PackageType: Image
@@ -62,14 +64,15 @@ Resources:
 
   HandleTableFunction:
     Type: AWS::Lambda::Function
+    DependsOn: LambdaExecutionRole
     Properties:
       FunctionName: handleTable
       PackageType: Image
       Role: !GetAtt LambdaExecutionRole.Arn
-      Architectures: 
+      Architectures:
         - arm64
-      MemorySize: 1024
-      Timeout: 30
+      MemorySize: 512
+      Timeout: 60
       Environment:
         Variables:
           REGION: !Ref AwsRegion
@@ -78,6 +81,7 @@ Resources:
 
   EmailControlsFunction:
     Type: AWS::Lambda::Function
+    DependsOn: LambdaExecutionRole
     Properties:
       FunctionName: emailControls
       PackageType: Image
@@ -118,6 +122,12 @@ Resources:
                   - s3:GetObject
                   - dynamodb:Scan
                   - dynamodb:GetItem
+                  - dynamodb:CreateTable
+                  - dynamodb:DeleteTable
+                  - dynamodb:DescribeTable
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                   - lambda:InvokeFunction
                 Resource: '*'
 

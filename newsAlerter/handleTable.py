@@ -32,15 +32,15 @@ def setup(parent_entity: str):
     # Define table name
     table_name = f"{parent_entity}_TrackedEntities"
     
+    # Check if table exists
     try:
-        # Check if table exists
-        try:
-            dynamodb.describe_table(TableName=table_name)
-            raise Exception(f"Table {table_name} already exists. Use a different parent entity name.")
-        except dynamodb.exceptions.ResourceNotFoundException:
-            # Table doesn't exist, proceed with creation
-            pass
+        dynamodb.describe_table(TableName=table_name)
+        raise Exception(f"Table {table_name} already exists")
+    except dynamodb.exceptions.ResourceNotFoundException:
+        # Table doesn't exist, proceed with creation
+        pass
         
+    try:
         # Create table
         response = dynamodb.create_table(
             TableName=table_name,
@@ -502,6 +502,10 @@ def lambda_handler(event, context):
     Lambda handler for managing DynamoDB table operations
     """
     try:
+        credentials = load_credentials()
+        # Initialize DynamoDB client
+        dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+        
         # Regular API actions continue below...
         action = event.get('action')
         parent_entity = event.get('parent_entity')
@@ -525,7 +529,7 @@ def lambda_handler(event, context):
             # Verify sender is authorized
             authorized_emails = [
                 "neilpendyala@gmail.com",  # Default from master.py
-                os.getenv('REPORT_EMAIL')   # From environment if set
+                credentials.get('REPORT_EMAIL')   # From credentials
             ]
             
             if not sender or sender not in authorized_emails:

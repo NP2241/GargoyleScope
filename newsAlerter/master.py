@@ -1,6 +1,6 @@
 import os
 import json
-import openai
+from openai import OpenAI
 import boto3
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -139,8 +139,9 @@ def generate_html_report(entities_with_analysis):
 def send_error_notification(error_message: str, recipient: str = "neilpendyala@gmail.com"):
     """Send error notification email"""
     try:
+        credentials = load_credentials()
         # Create SES client
-        ses = boto3.client('ses', region_name=os.getenv('REGION', 'us-west-1'))
+        ses = boto3.client('ses', region_name=credentials.get('REGION', 'us-west-1'))
         
         # Create message
         msg = MIMEMultipart('alternative')
@@ -194,9 +195,10 @@ def setup_email_list(parent_entity: str, initial_emails: list = None):
     if initial_emails is None:
         initial_emails = ["neilpendyala@gmail.com"]
         
+    credentials = load_credentials()
     # Initialize DynamoDB client
-    dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-    dynamodb_resource = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
     
     table_name = "EmailList"
     
@@ -244,7 +246,8 @@ def setup_email_list(parent_entity: str, initial_emails: list = None):
 def get_email_list(parent_entity: str) -> list:
     """Get list of emails for a parent entity"""
     try:
-        dynamodb = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
+        credentials = load_credentials()
+        dynamodb = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
         table = dynamodb.Table('EmailList')
         
         response = table.get_item(
@@ -267,12 +270,13 @@ def get_email_list(parent_entity: str) -> list:
 def lambda_handler(event, context):
     """Lambda handler for article analysis"""
     try:
+        credentials = load_credentials()
         # Initialize clients
-        dynamodb = boto3.client('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-        lambda_client = boto3.client('lambda', region_name=os.getenv('REGION', 'us-west-1'))
+        dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+        lambda_client = boto3.client('lambda', region_name=credentials.get('REGION', 'us-west-1'))
         
         # Get parent entity from environment or event
-        parent_entity = event.get('parent_entity') or os.getenv('PARENT_ENTITY')
+        parent_entity = event.get('parent_entity')
         if not parent_entity:
             raise Exception("parent_entity must be provided in event or environment variables")
             
@@ -428,3 +432,33 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': error_msg})
         }
+
+def analyze_entity(text: str, entity: str, parent_entity: str = "stanford", advanced_response: bool = True):
+    try:
+        credentials = load_credentials()
+        client = OpenAI(api_key=credentials.get('OPENAI_API_KEY'))
+        
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert analyst..."},
+                {"role": "user", "content": f"Analyze this text..."}
+            ]
+        )
+        
+        # Process the response as needed
+        # For example, you can extract information from the response
+        # and store it in the analysis data
+        analysis_data = {
+            'summary': response.choices[0].message.content,
+            'sentiment': 'positive' if 'positive' in response.choices[0].message.content else 'negative',
+            'highlighted_text': text[:100]  # Simplified example
+        }
+        
+        return {
+            'entity_name': entity,
+            'analysis': analysis_data
+        }
+    except Exception as e:
+        print(f"Error analyzing entity: {str(e)}")
+        return None

@@ -15,11 +15,11 @@ COPY newsAlerter/emailControls.py ./
 COPY newsAlerter/master.py ./
 
 COPY <<'EOF' /var/task/lambda_function.py
-from emailControls import lambda_handler
+from emailControls import process_email
 
 def handler(event, context):
     try:
-        return lambda_handler(event, context)
+        return process_email(event, context)
     except Exception as e:
         print(f"Error in handler: {str(e)}")
         raise

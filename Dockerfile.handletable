@@ -1,28 +1,39 @@
-FROM public.ecr.aws/lambda/python:3.9-arm64
+FROM public.ecr.aws/lambda/python:3.8-arm64
 
 # Set environment variables
 ENV PYTHONPATH="/var/task"
 
 WORKDIR /var/task
 
-# Install dependencies
+# Install dependencies first (for better caching)
 RUN pip3 install --upgrade pip setuptools wheel
 RUN pip3 install --no-cache-dir --target /var/task \
-    boto3>=1.26.0 \
-    requests==2.31.0
+    boto3>=1.26.0
 
+# Copy files
 COPY newsAlerter/handleTable.py ./
-COPY newsAlerter/master.py ./
+
+# Debug: List all files and pip packages
+RUN echo "=== Files in /var/task ===" && \
+    ls -la /var/task && \
+    echo "\n=== Installed pip packages ===" && \
+    pip list
 
 COPY <<'EOF' /var/task/lambda_function.py
+import os
+import sys
 from handleTable import lambda_handler
 
+print("=== Lambda Initialization ===")
+print(f"Python version: {sys.version}")
+print("Module search paths:")
+for path in sys.path:
+    print(f"  - {path}")
+print("Available modules:")
+print(os.listdir(os.path.dirname(__file__)))
+
 def handler(event, context):
-    try:
-        return lambda_handler(event, context)
-    except Exception as e:
-        print(f"Error in handler: {str(e)}")
-        raise
+    return lambda_handler(event, context)
 EOF
 
 CMD ["lambda_function.handler"] 
