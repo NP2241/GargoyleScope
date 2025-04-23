@@ -12,6 +12,7 @@ RUN pip3 install --no-cache-dir --target /var/task \
 
 # Copy files
 COPY newsAlerter/handleTable.py ./
+COPY env.json ./
 
 # Debug: List all files and pip packages
 RUN echo "=== Files in /var/task ===" && \

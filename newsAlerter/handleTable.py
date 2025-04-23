@@ -96,13 +96,15 @@ def setup(parent_entity: str):
         print(f"Error: {str(e)}")
         raise
 
-def add_entities(parent_entity: str, entities: list):
+def add_entities(parent_entity: str, entities: list, analysis: dict = None, completed: bool = False):
     """
     Add new entities to the tracking table.
     
     Args:
         parent_entity (str): Name of the parent entity (e.g., "Stanford")
         entities (list): List of entity names to add
+        analysis (dict, optional): Analysis data to store with entity. Defaults to empty dict.
+        completed (bool, optional): Completion status flag. Defaults to False.
         
     Returns:
         dict: Results of the operation
@@ -110,6 +112,9 @@ def add_entities(parent_entity: str, entities: list):
     Raises:
         Exception: If table doesn't exist or other errors occur
     """
+    if analysis is None:
+        analysis = {}
+    
     # Initialize DynamoDB client and resource
     credentials = load_credentials()
     dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
@@ -138,8 +143,8 @@ def add_entities(parent_entity: str, entities: list):
                 table.put_item(
                     Item={
                         'entity_name': entity,
-                        'analysis': {},  # Empty JSON object
-                        'completed': False
+                        'analysis': analysis,
+                        'completed': completed
                     }
                 )
                 added_entities.append(entity)
@@ -497,6 +502,93 @@ def check_completed(parent_entity: str):
         print(f"Error: {str(e)}")
         raise
 
+def setup_email_list(parent_entity: str, initial_emails: list):
+    """
+    Create and initialize email list table for a parent entity
+    
+    Args:
+        parent_entity (str): Name of the parent entity (e.g., "Stanford")
+        initial_emails (list): Initial list of emails (required)
+    """
+    if not initial_emails:
+        raise Exception("initial_emails list is required")
+        
+    credentials = load_credentials()
+    # Initialize DynamoDB client
+    dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    dynamodb_resource = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+    
+    table_name = "EmailList"
+    
+    try:
+        # Create table if it doesn't exist
+        try:
+            dynamodb.describe_table(TableName=table_name)
+        except dynamodb.exceptions.ResourceNotFoundException:
+            response = dynamodb.create_table(
+                TableName=table_name,
+                AttributeDefinitions=[
+                    {
+                        'AttributeName': 'parent_entity',
+                        'AttributeType': 'S'
+                    }
+                ],
+                KeySchema=[
+                    {
+                        'AttributeName': 'parent_entity',
+                        'KeyType': 'HASH'
+                    }
+                ],
+                BillingMode='PAY_PER_REQUEST'
+            )
+            print(f"Creating email list table...")
+            dynamodb.get_waiter('table_exists').wait(TableName=table_name)
+            
+        # Get table resource
+        table = dynamodb_resource.Table(table_name)
+        
+        # Add/Update email list for parent entity
+        table.put_item(
+            Item={
+                'parent_entity': parent_entity,
+                'email_list': initial_emails
+            }
+        )
+        
+        print(f"✅ Email list initialized for {parent_entity}")
+        
+    except Exception as e:
+        print(f"Error setting up email list: {str(e)}")
+        raise
+
+def get_email_list(parent_entity: str, default_email: str = None) -> list:
+    """Get list of emails for a parent entity"""
+    try:
+        credentials = load_credentials()
+        dynamodb = boto3.resource('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
+        table = dynamodb.Table('EmailList')
+        
+        response = table.get_item(
+            Key={
+                'parent_entity': parent_entity
+            }
+        )
+        
+        if 'Item' not in response:
+            if not default_email:
+                raise Exception(f"No email list found for {parent_entity} and no default email provided")
+            # Initialize if not found
+            setup_email_list(parent_entity, [default_email])
+            return [default_email]
+            
+        return response['Item']['email_list']
+        
+    except Exception as e:
+        print(f"Error getting email list: {str(e)}")
+        if default_email:
+            return [default_email]  # Fallback to default if provided
+        raise  # Otherwise raise the error
+
 def lambda_handler(event, context):
     """
     Lambda handler for managing DynamoDB table operations
@@ -528,7 +620,6 @@ def lambda_handler(event, context):
             
             # Verify sender is authorized
             authorized_emails = [
-                "neilpendyala@gmail.com",  # Default from master.py
                 credentials.get('REPORT_EMAIL')   # From credentials
             ]
             
@@ -594,11 +685,19 @@ def lambda_handler(event, context):
             response = clear_attributes(parent_entity)
         elif action == "checkCompleted":
             response = check_completed(parent_entity)
+        elif action == "setup_email_list":
+            initial_emails = event.get('initial_emails')
+            setup_email_list(parent_entity, initial_emails)
+            response = {'message': f'Email list initialized for {parent_entity}'}
+        elif action == "get_email_list":
+            default_email = event.get('default_email')
+            email_list = get_email_list(parent_entity, default_email)
+            response = {'email_list': email_list}
         else:
             return {
                 'statusCode': 400,
                 'body': json.dumps({
-                    'error': f'Invalid action: {action}. Must be one of: setup, add, delete, list, clear, checkCompleted'
+                    'error': f'Invalid action: {action}. Must be one of: setup, add, delete, list, clear, checkCompleted, setup_email_list, get_email_list'
                 })
             }
         
