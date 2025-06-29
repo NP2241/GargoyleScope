@@ -1,5 +1,6 @@
 # AWS SAM
 .aws-sam/
+.aws/
 
 # Python
 __pycache__/
@@ -26,7 +27,9 @@ wheels/
 
 # Virtual Environment
 venv/
+.venv/
 ENV/
+env/
 
 # IDE
 .idea/
@@ -43,22 +46,37 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
-# Environment variables
+# Environment variables and secrets
 .env
 .env.*
+config/env.json
+config/env.local.json
 
 # Google Cloud credentials
 *.json
 gargoylescope-*.json
-env.json
-env.local.json
 
-# Environment variables and secrets
-.env
-env.json
-env.*.json
-deploy.sh
+# Node.js (if any frontend components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# New additions
-*.pyc
+# Test outputs
 response.json
+output.json
+lambda_logs.txt
+*.tmp
+
+# Coverage reports
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp

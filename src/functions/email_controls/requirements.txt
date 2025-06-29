@@ -1,0 +1,3 @@
+# Dependencies for email_controls Lambda function
+boto3>=1.26.0
+requests==2.31.0 

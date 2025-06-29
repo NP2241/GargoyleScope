@@ -1,0 +1,6 @@
+# Dependencies for worker Lambda function
+openai>=1.0.0
+google-api-python-client
+beautifulsoup4==4.12.2
+boto3>=1.26.0
+requests==2.31.0 

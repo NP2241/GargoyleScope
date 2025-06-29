@@ -1,0 +1,1 @@
+# News Alerter Lambda Function Package 

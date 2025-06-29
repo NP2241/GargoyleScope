@@ -6,4 +6,4 @@ aws cloudformation delete-stack --stack-name gargoylescope
 echo "⏳ Waiting for stack deletion..."
 aws cloudformation wait stack-delete-complete --stack-name gargoylescope
 
-echo "✅ Cleanup complete - run ./deploy.sh to redeploy" 
+echo "✅ Cleanup complete - run ./scripts/deploy.sh to redeploy" 

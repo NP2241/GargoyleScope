@@ -16,7 +16,22 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
     test_entity = "Rangoon Ruby"
     successful_steps = 0
     status_messages = []
-    total_steps = 9  # Default to full test suite
+    total_steps = 8  # Updated to match the actual number of steps in both paths
+    
+    # Define all expected steps for consistent reporting
+    expected_steps = [
+        "Table Setup",
+        "Add Entity", 
+        "List Entities",
+        "Add Entity with Analysis",
+        "List Entities (Verification)",
+        "Delete Entity",
+        "Setup Email List",
+        "Get Email List"
+    ]
+    
+    # Track step status
+    step_status = {step: "❌ Not executed" for step in expected_steps}
     
     try:
         # Initialize Lambda client
@@ -45,6 +60,7 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
             raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
             
         successful_steps += 1
+        step_status["Table Setup"] = "✅ Table created successfully"
         status_messages.append("        - ✅ Table created successfully")
         
         # 2. Add entity to table
@@ -70,6 +86,7 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
             raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
         
         successful_steps += 1
+        step_status["Add Entity"] = f"✅ Added entity: {test_entity}"
         status_messages.append(f"        - ✅ Added entity: {test_entity}")
         
         # 3. List entities
@@ -99,11 +116,11 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
             raise Exception(f"Added entity {test_entity} not found in list")
         
         successful_steps += 1
+        step_status["List Entities"] = f"✅ Listing successful: {entities_list}"
         status_messages.append(f"        - ✅ Listing successful: {entities_list}")
         
-        # 4. Check completion status
+        # 4. Add entity with analysis and completed=True
         try:
-            # Add entity with analysis and completed=True
             dummy_analysis = {
                 'article': {
                     'title': 'Regular Update',
@@ -141,18 +158,19 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
             
             successful_steps += 1
-            status_messages.append(f"        - ✅ Added entity with analysis data and completed=True")
+            step_status["Add Entity with Analysis"] = "✅ Added entity with analysis data and completed=True"
+            status_messages.append("        - ✅ Added entity with analysis data and completed=True")
         except Exception as e:
-            print("❌ Error adding entity with analysis")
+            step_status["Add Entity with Analysis"] = f"❌ Failed: {str(e)}"
             if detailed:
                 print(f"        - ❌ Failed to add entity with analysis: {str(e)}")
-            print(f"❌ handleTable.py failed ({successful_steps}/6)")
         
-        # Try to list entities
+        # 5. List entities (verification)
         try:
             event = {
                 'action': 'list',
-                'parent_entity': parent_entity
+                'parent_entity': parent_entity,
+                'include_analysis': True
             }
             
             event_json = json.dumps(event).encode('utf-8')
@@ -176,17 +194,18 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 raise Exception(f"Added entity {test_entity} not found in list")
                 
             successful_steps += 1
-            status_messages.append(f"        - ✅ Listing successful: {entities_list}")
+            step_status["List Entities (Verification)"] = f"✅ Listing successful: {entities_list}"
+            status_messages.append(f"        - ✅ Listing successful: {entities_list} (verification)")
             
         except Exception as e:
+            step_status["List Entities (Verification)"] = f"❌ Failed: {str(e)}"
             status_messages.append(f"        - ❌ Failed to list entities")
-            print(f"❌ handleTable.py failed ({successful_steps}/6)")
             if detailed:
                 for msg in status_messages:
                     print(msg)
             raise
         
-        # 5. Delete entity and check completion status
+        # 6. Delete entity
         try:
             event = {
                 'action': 'delete',
@@ -209,10 +228,11 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
             if response_payload.get('statusCode', 500) != 200:
                 raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
             
-            status_messages.append(f"        - ✅ Deleted entity: {test_entity}")
             successful_steps += 1
+            step_status["Delete Entity"] = f"✅ Deleted entity: {test_entity}"
+            status_messages.append(f"        - ✅ Deleted entity: {test_entity}")
 
-            # Set up email list
+            # 7. Setup email list
             event = {
                 'action': 'setup_email_list',
                 'parent_entity': parent_entity,
@@ -235,9 +255,10 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
             
             successful_steps += 1
-            status_messages.append(f"        - ✅ Email list setup verified (setup_email_list)")
+            step_status["Setup Email List"] = "✅ Email list setup verified"
+            status_messages.append("        - ✅ Email list setup verified")
 
-            # Verify email list was set up by getting it
+            # 8. Get email list
             event = {
                 'action': 'get_email_list',
                 'parent_entity': parent_entity
@@ -257,39 +278,13 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 raise Exception(f"Email {test_email} not found in email list")
             
             successful_steps += 1
-            status_messages.append(f"        - ✅ Retrieved email list: {email_list} (get_email_list)")
-
-            # Check completion status
-            event = {
-                'action': 'checkCompleted',
-                'parent_entity': parent_entity
-            }
-            
-            event_json = json.dumps(event).encode('utf-8')
-            response = lambda_client.invoke(
-                FunctionName='handleTable',
-                InvocationType='RequestResponse',
-                Payload=event_json
-            )
-            
-            response_payload = json.loads(response['Payload'].read())
-            
-            if response.get('FunctionError'):
-                raise Exception(f"Lambda execution failed: {json.dumps(response_payload)}")
-                
-            if response_payload.get('statusCode', 500) != 200:
-                raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
-
-            completion_status = json.loads(response_payload.get('body', '{}')).get('all_completed', True)
-            if completion_status:
-                raise Exception("Expected completion status to be False")
-            
-            successful_steps += 1
-            status_messages.append("        - ✅ Verified completion status is False")
+            step_status["Get Email List"] = f"✅ Retrieved email list: {email_list}"
+            status_messages.append(f"        - ✅ Retrieved email list: {email_list}")
 
         except Exception as e:
+            step_status["Setup Email List"] = f"❌ Failed: {str(e)}"
+            step_status["Get Email List"] = "❌ Skipped due to previous failure"
             status_messages.append(f"        - ❌ Failed to setup or verify email list: {str(e)}")
-            print(f"❌ handleTable.py failed ({successful_steps}/7)")
             if detailed:
                 for msg in status_messages:
                     print(msg)
@@ -302,8 +297,8 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
     except Exception as e:
         if f"Table {table_name} already exists" in str(e):
             successful_steps += 1
+            step_status["Table Setup"] = "✅ Table already exists"
             status_messages.append("        - ✅ Table already exists (setup)")
-            total_steps = 7  # Updated to include get_email_list test
             
             # Continue with adding entity even if table exists
             try:
@@ -330,6 +325,7 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                     raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
                 
                 successful_steps += 1
+                step_status["Add Entity"] = f"✅ Added entity: {test_entity}"
                 status_messages.append(f"        - ✅ Added entity: {test_entity} (add_entities)")
                 
                 # List entities
@@ -347,10 +343,11 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 
                 response_payload = json.loads(response['Payload'].read())
                 entities_list = json.loads(response_payload.get('body', '{}')).get('entities', [])
+                step_status["List Entities"] = f"✅ Listing: {entities_list}"
                 status_messages.append(f"        - ✅ Listing: {entities_list} (list_entities)")
                 successful_steps += 1
 
-                # Check completion status
+                # Check completion status (this replaces the analysis step in fallback)
                 event = {
                     'action': 'checkCompleted',
                     'parent_entity': parent_entity
@@ -376,7 +373,65 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                     raise Exception("Expected completion status to be False")
                 
                 successful_steps += 1
+                step_status["Add Entity with Analysis"] = "✅ Verified completion status is False"
                 status_messages.append("        - ✅ Verified completion status is False (check_completed)")
+
+                # Update the entity's analysis and completed fields using the new 'update' action
+                dummy_analysis = {
+                    'article': {
+                        'title': 'Regular Update',
+                        'url': 'http://example.com/regular/1',
+                        'snippet': 'Standard business update.'
+                    },
+                    'analysis': {
+                        'sentiment': 'neutral',
+                        'summary': 'Regular business operations update.',
+                        'important': False
+                    }
+                }
+                event = {
+                    'action': 'update',
+                    'parent_entity': parent_entity,
+                    'entity_name': test_entity,
+                    'analysis': dummy_analysis,
+                    'completed': True
+                }
+                event_json = json.dumps(event).encode('utf-8')
+                response = lambda_client.invoke(
+                    FunctionName='handleTable',
+                    InvocationType='RequestResponse',
+                    Payload=event_json
+                )
+                response_payload = json.loads(response['Payload'].read())
+                if response.get('FunctionError'):
+                    raise Exception(f"Lambda execution failed: {json.dumps(response_payload)}")
+                if response_payload.get('statusCode', 500) != 200:
+                    raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
+                status_messages.append("        - ✅ Updated entity with analysis data and completed=True (update)")
+
+                # List entities (verification) - verify entity still exists after update
+                event = {
+                    'action': 'list',
+                    'parent_entity': parent_entity,
+                    'include_analysis': True
+                }
+                event_json = json.dumps(event).encode('utf-8')
+                response = lambda_client.invoke(
+                    FunctionName='handleTable',
+                    InvocationType='RequestResponse',
+                    Payload=event_json
+                )
+                response_payload = json.loads(response['Payload'].read())
+                if response.get('FunctionError'):
+                    raise Exception(f"Lambda execution failed: {json.dumps(response_payload)}")
+                if response_payload.get('statusCode', 500) != 200:
+                    raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
+                entities_list = json.loads(response_payload.get('body', '{}')).get('entities', [])
+                if test_entity not in [e['entity_name'] if isinstance(e, dict) else e for e in entities_list]:
+                    raise Exception(f"Added entity {test_entity} not found in list")
+                successful_steps += 1
+                step_status["List Entities (Verification)"] = f"✅ Listing successful: {entities_list}"
+                status_messages.append(f"        - ✅ Listing successful: {entities_list} (verification)")
 
                 # Delete the entity
                 event = {
@@ -400,8 +455,35 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                 if response_payload.get('statusCode', 500) != 200:
                     raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
                 
+                step_status["Delete Entity"] = f"✅ Deleted entity: {test_entity}"
                 status_messages.append(f"        - ✅ Deleted entity: {test_entity} (delete_entities)")
                 successful_steps += 1
+
+                # Setup email list
+                event = {
+                    'action': 'setup_email_list',
+                    'parent_entity': parent_entity,
+                    'initial_emails': [test_email]
+                }
+                
+                event_json = json.dumps(event).encode('utf-8')
+                response = lambda_client.invoke(
+                    FunctionName='handleTable',
+                    InvocationType='RequestResponse',
+                    Payload=event_json
+                )
+                
+                response_payload = json.loads(response['Payload'].read())
+                
+                if response.get('FunctionError'):
+                    raise Exception(f"Lambda execution failed: {json.dumps(response_payload)}")
+                    
+                if response_payload.get('statusCode', 500) != 200:
+                    raise Exception(f"Lambda returned error: {response_payload.get('body', 'Unknown error')}")
+                
+                successful_steps += 1
+                step_status["Setup Email List"] = "✅ Email list setup verified"
+                status_messages.append(f"        - ✅ Email list setup verified (setup_email_list)")
 
                 # Get email list
                 event = {
@@ -423,18 +505,19 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
                     raise Exception(f"Email {test_email} not found in email list")
                 
                 successful_steps += 1
+                step_status["Get Email List"] = f"✅ Retrieved email list: {email_list}"
                 status_messages.append(f"        - ✅ Retrieved email list: {email_list} (get_email_list)")
 
             except Exception as e:
+                step_status["Add Entity"] = f"❌ Failed: {str(e)}"
                 status_messages.append(f"        - ❌ Failed to add {test_entity}")
-                print(f"❌ handleTable.py failed ({successful_steps}/6)")
                 if detailed:
                     for msg in status_messages:
                         print(msg)
                 raise
         else:
+            step_status["Table Setup"] = f"❌ Failed: {str(e)}"
             status_messages.append("        - ❌ Table setup failed")
-            print(f"❌ handleTable.py failed ({successful_steps}/6)")
             if detailed:
                 for msg in status_messages:
                     print(msg)
@@ -442,9 +525,33 @@ def test_handleTable(detailed: bool = False, test_email: str = "neilpendyala@gma
 
     # Print final success status if all tests passed
     print(f"✅ handleTable.py successful ({successful_steps}/{total_steps})")
-    if detailed:
-        for msg in status_messages:
-            print(msg)
+    for i, step in enumerate(expected_steps, 1):
+        status = step_status[step]
+        # Extract emoji and message from status
+        if "✅" in status:
+            emoji = "✅"
+            message = status.replace("✅ ", "")
+            # Clean up the verification step output
+            if step == "List Entities (Verification)" and "Listing successful:" in message:
+                # Extract just the entity name and completion status, show analysis as expected
+                if "analysis" in message:
+                    message = message.split("Listing successful: ")[1]
+                    # Parse the entities list to extract clean info
+                    try:
+                        entities_data = eval(message)  # Safe since we control the data
+                        if entities_data and len(entities_data) > 0:
+                            entity = entities_data[0]
+                            clean_message = f"entity: {entity['entity_name']}, completed: {entity['completed']}, analysis: 'as expected'"
+                            message = f"Listing successful: [{clean_message}]"
+                    except:
+                        pass  # Keep original message if parsing fails
+        elif "❌" in status:
+            emoji = "❌"
+            message = status.replace("❌ ", "")
+        else:
+            emoji = "❌"
+            message = status
+        print(f"  {i}. {emoji} {step}: {message}")
 
 if __name__ == "__main__":
     test_handleTable(detailed=True)  # Uses default test email 

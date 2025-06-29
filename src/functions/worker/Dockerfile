@@ -14,9 +14,10 @@ RUN pip3 install --no-cache-dir --target /var/task \
     boto3>=1.26.0 \
     requests==2.31.0
 
-COPY newsAlerter/worker.py ./
-COPY newsAlerter/email_preview.html ./
-COPY newsAlerter/master.py ./
+# Copy shared modules
+COPY src/shared ./shared/
+
+COPY src/functions/worker/handler.py ./
 
 COPY <<'EOF' /var/task/lambda_function.py
 print("=== LAMBDA INITIALIZATION START ===")
@@ -33,7 +34,7 @@ for root, dirs, files in os.walk('.'):
     for f in files:
         print(f"  - {f}")
 
-from worker import process_entity
+from handler import process_entity
 
 def handler(event, context):
     try:

@@ -8,19 +8,8 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import requests
 
-# Load credentials from env.json
-def load_credentials():
-    try:
-        with open('env.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        # In Lambda, use environment variables
-        return {
-            'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
-            'GOOGLE_API_KEY': os.environ.get('GOOGLE_API_KEY'),
-            'GOOGLE_CSE_ID': os.environ.get('GOOGLE_CSE_ID'),
-            'REGION': os.environ.get('REGION', 'us-west-1')
-        }
+from shared.utils import load_credentials
+from shared.database import update_entity_analysis
 
 def search_news_articles(entity: str) -> dict:
     """
@@ -165,11 +154,6 @@ def process_entity(entity: str, parent_entity: str, table: str = None) -> dict:
     try:
         print(f"\nProcessing entity: {entity}")
         
-        credentials = load_credentials()
-        # Initialize clients
-        dynamodb = boto3.client('dynamodb', region_name=credentials.get('REGION', 'us-west-1'))
-        table = dynamodb.Table(f"{parent_entity}_TrackedEntities")
-        
         # Search for articles
         search_results = search_news_articles(entity)
         
@@ -183,98 +167,66 @@ def process_entity(entity: str, parent_entity: str, table: str = None) -> dict:
         # Sort articles - important ones first
         analyzed_articles.sort(key=lambda x: (not x[1].get('important', False)))
         
-        # Update DynamoDB with results
-        table.update_item(
-            Key={'entity_name': entity},
-            UpdateExpression="SET analysis = :analysis, completed = :completed",
-            ExpressionAttributeValues={
-                ':analysis': {
-                    'timestamp': datetime.now().isoformat(),
-                    'articles': [
-                        {
-                            'title': article['title'],
-                            'url': article['url'],
-                            'snippet': article['snippet'],
-                            'analysis': analysis
-                        }
-                        for article, analysis in analyzed_articles
-                    ]
-                },
-                ':completed': True
-            }
-        )
+        # Prepare analysis data
+        analysis_data = {
+            'timestamp': datetime.now().isoformat(),
+            'articles': [
+                {
+                    'title': article['title'],
+                    'url': article['url'],
+                    'snippet': article['snippet'],
+                    'analysis': analysis
+                }
+                for article, analysis in analyzed_articles
+            ]
+        }
         
-        print(f"✅ Successfully processed {entity}")
-        return {'success': True}
+        # Update DynamoDB with results
+        update_entity_analysis(parent_entity, entity, analysis_data, completed=True)
+        
+        print(f"✅ Completed processing for {entity}")
+        return {
+            'entity': entity,
+            'articles_found': len(analyzed_articles),
+            'important_articles': len([a for _, a in analyzed_articles if a.get('important', False)])
+        }
         
     except Exception as e:
         print(f"❌ Error processing entity {entity}: {str(e)}")
         return {
-            'success': False,
-            'error': str(e)
+            'entity': entity,
+            'error': str(e),
+            'articles_found': 0,
+            'important_articles': 0
         }
 
 def lambda_handler(event, context):
-    """
-    Lambda handler for processing a batch of entities
-    
-    Expected event format:
-    {
-        "parent_entity": "Stanford",
-        "entities": ["Entity1", "Entity2", ...]  # Batch of up to 10 entities
-    }
-    """
+    """Lambda handler for processing individual entities"""
     try:
-        # Get parent_entity and entities from event
+        # Extract parameters from event
+        entity = event.get('entity')
         parent_entity = event.get('parent_entity')
-        entities = event.get('entities', [])
         
-        # Validate inputs
-        if not parent_entity:
-            raise Exception("parent_entity is required")
-        if not entities:
-            raise Exception("entities list is required")
-            
-        # Initialize DynamoDB client
-        dynamodb = boto3.resource('dynamodb', region_name=os.getenv('REGION', 'us-west-1'))
-        table = dynamodb.Table(f"{parent_entity}_TrackedEntities")
+        if not entity or not parent_entity:
+            raise Exception("Both 'entity' and 'parent_entity' must be provided in event")
         
-        # Process each entity
-        processed_entities = []
-        failed_entities = []
+        print(f"🚀 Starting processing for entity: {entity}")
         
-        for entity in entities:
-            result = process_entity(entity, parent_entity, table)
-            if result['success']:
-                processed_entities.append(entity)
-            else:
-                failed_entities.append({
-                    'entity': entity,
-                    'error': result.get('error', 'Unknown error')
-                })
+        # Process the entity
+        result = process_entity(entity, parent_entity)
         
-        # Prepare response
-        response = {
-            'message': f'Processed {len(processed_entities)} entities',
-            'processed_entities': processed_entities,
-            'batch_size': len(entities),
-            'successful': len(processed_entities),
-            'failed': len(failed_entities)
-        }
+        print(f"✅ Processing complete for {entity}")
         
-        if failed_entities:
-            response['failed_entities'] = failed_entities
-            
         return {
             'statusCode': 200,
-            'body': json.dumps(response)
+            'body': json.dumps(result)
         }
         
     except Exception as e:
-        print(f"Error in worker lambda: {str(e)}")
+        error_message = f"Error in worker lambda_handler: {str(e)}"
+        print(f"❌ {error_message}")
+        
         return {
             'statusCode': 500,
-            'body': json.dumps({
-                'error': str(e)
-            })
+            'body': json.dumps({'error': error_message})
         } 

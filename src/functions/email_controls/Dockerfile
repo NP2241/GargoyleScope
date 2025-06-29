@@ -11,11 +11,13 @@ RUN pip3 install --no-cache-dir --target /var/task \
     requests==2.31.0 \
     boto3>=1.26.0
 
-COPY newsAlerter/emailControls.py ./
-COPY newsAlerter/master.py ./
+# Copy shared modules
+COPY src/shared ./shared/
+
+COPY src/functions/email_controls/handler.py ./
 
 COPY <<'EOF' /var/task/lambda_function.py
-from emailControls import process_email
+from handler import process_email
 
 def handler(event, context):
     try:

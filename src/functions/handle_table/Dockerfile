@@ -10,9 +10,12 @@ RUN pip3 install --upgrade pip setuptools wheel
 RUN pip3 install --no-cache-dir --target /var/task \
     boto3>=1.26.0
 
+# Copy shared modules
+COPY src/shared ./shared/
+
 # Copy files
-COPY newsAlerter/handleTable.py ./
-COPY env.json ./
+COPY src/functions/handle_table/handler.py ./
+COPY config/env.json ./
 
 # Debug: List all files and pip packages
 RUN echo "=== Files in /var/task ===" && \
@@ -23,7 +26,7 @@ RUN echo "=== Files in /var/task ===" && \
 COPY <<'EOF' /var/task/lambda_function.py
 import os
 import sys
-from handleTable import lambda_handler
+from handler import lambda_handler
 
 print("=== Lambda Initialization ===")
 print(f"Python version: {sys.version}")

@@ -1,54 +1,56 @@
 version: '3.8'
 services:
-  sentiment-model:
-    build: 
-      context: ./newsAlerter/model_service
-      dockerfile: Dockerfile
-      args:
-        - HF_TOKEN=${HF_TOKEN}
-    platform: linux/arm64
-    ports:
-      - "8080:8080"
-    environment:
-      - HF_HOME=/root/.cache/huggingface
-      - HF_TOKEN=${HF_TOKEN}
-    volumes:
-      - model-cache:/root/.cache/huggingface
-      - model-offload:/app/offload
-    deploy:
-      resources:
-        limits:
-          memory: 12G
-          cpus: '2.0'    # CPU limits go inside resources.limits
-        reservations:
-          memory: 6G
-    # Optional: if you have multiple CPUs, allocate more
-    cpus: 2.0           # Reduced from 4.0 to be more conservative
-    # Add swap
-    tmpfs:
-      - /swap:size=8G
-
   newsalerter:
-    build: .
+    build: 
+      context: .
+      dockerfile: src/functions/news_alerter/Dockerfile
     image: newsalerterfunction:latest
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=us-west-1
-      - LAMBDA_HANDLER=newsAlerter.master.lambda_handler
+      - LAMBDA_HANDLER=lambda_function.handler
     volumes:
-      - .:/var/task
+      - ./src/functions/news_alerter:/var/task
+
+  worker:
+    build: 
+      context: .
+      dockerfile: src/functions/worker/Dockerfile
+    image: workerfunction:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=us-west-1
+      - LAMBDA_HANDLER=lambda_function.handler
+    volumes:
+      - ./src/functions/worker:/var/task
+
+  handletable:
+    build: 
+      context: .
+      dockerfile: src/functions/handle_table/Dockerfile
+    image: handletablefunction:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=us-west-1
+      - LAMBDA_HANDLER=lambda_function.handler
+    volumes:
+      - ./src/functions/handle_table:/var/task
 
   emailcontrols:
-    build: .
-    image: newsalerterfunction:latest
+    build: 
+      context: .
+      dockerfile: src/functions/email_controls/Dockerfile
+    image: emailcontrolsfunction:latest
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=us-west-1
-      - LAMBDA_HANDLER=newsAlerter.emailControls.lambda_handler
+      - LAMBDA_HANDLER=lambda_function.handler
     volumes:
-      - .:/var/task
+      - ./src/functions/email_controls:/var/task
 
 volumes:
   model-cache:

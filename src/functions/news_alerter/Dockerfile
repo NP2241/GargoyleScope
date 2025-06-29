@@ -13,9 +13,12 @@ RUN pip3 install --no-cache-dir --target /var/task \
     openai==1.12.0 \
     google-api-python-client
 
+# Copy shared modules
+COPY src/shared ./shared/
+
 # Copy files
-COPY newsAlerter/email_preview.html ./
-COPY newsAlerter/*.py ./
+COPY src/web/templates/email_preview.html ./
+COPY src/functions/news_alerter/handler.py ./
 
 # Before the lambda_function.py copy
 RUN echo "=== Installed Python packages ===" && \
@@ -38,7 +41,7 @@ sys.meta_path.insert(0, type('ImportLogger', (), {
 
 try:
     print("=== Starting imports ===")
-    from master import lambda_handler
+    from handler import lambda_handler
     print("=== Imports complete ===")
 except Exception as e:
     print(f"Error: {type(e).__name__}: {str(e)}")
